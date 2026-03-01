@@ -15,37 +15,40 @@ class AITunnelService:
         self.image_model = Config.AITUNNEL_IMAGE_MODEL
 
     async def generate_photos(self, user_photo_paths: list, style_key: str, num_images: int = 1, gender=None) -> list:
-        """
-        Генерирует изображения через AI Tunnel API с моделью Gemini 2.5 Flash Image.
-        :param user_photo_paths: список путей к фото пользователя
-        :param style_key: ключ стиля из Config.STYLES
-        :param num_images: количество изображений (по умолчанию 1)
-        :param gender: пол пользователя ("male" / "female") – влияет на подстановку в промпт
-        """
         style = Config.STYLES.get(style_key)
         if not style:
             raise ValueError(f"Unknown style: {style_key}")
 
-        # Определяем субъект в зависимости от пола
-        if gender == 'male':
-            subject = "this man"
-        elif gender == 'female':
-            subject = "this woman"
-        else:
-            subject = "this person"
+        base_prompt = style["prompt"]
 
-        prompt = style["prompt"].replace("{token}", subject)
-        logger.info(f"Генерация фото в стиле {style_key}, субъект: {subject}")
-        
+        # Специальная обработка для стиля "голый торс" в зависимости от пола
+        if style_key == "bare_chest":
+            if gender == 'male':
+                prompt = "professional fitness portrait of this man, showing muscular athletic physique, six-pack abs visible, gym background, dramatic lighting, 8k, face clearly visible"
+            elif gender == 'female':
+                prompt = "professional fitness portrait of this woman, wearing a sports bra, showing fit feminine physique, toned body, gym background, soft lighting, 8k, face clearly visible, photorealistic"
+            else:
+                prompt = base_prompt.replace("{token}", "this person")
+        else:
+            # Для всех остальных стилей просто подставляем правильное обращение
+            if gender == 'male':
+                subject = "this man"
+            elif gender == 'female':
+                subject = "this woman"
+            else:
+                subject = "this person"
+            prompt = base_prompt.replace("{token}", subject)
+
+        logger.info(f"Генерация фото в стиле {style_key}, промпт: {prompt[:100]}...")
+
         results = []
-        
         if not user_photo_paths:
             logger.error("Нет фото пользователя")
             return []
-            
+
         ref_photo_path = user_photo_paths[0]
         logger.info(f"Используем референс фото: {ref_photo_path}")
-        
+
         try:
             with open(ref_photo_path, "rb") as f:
                 image_data = base64.b64encode(f.read()).decode("utf-8")
@@ -58,13 +61,13 @@ class AITunnelService:
         for i in range(num_images):
             try:
                 logger.info(f"Отправка запроса к AI Tunnel (Gemini 2.5 Flash Image) для фото #{i+1}")
-                
+
                 async with aiohttp.ClientSession() as session:
                     headers = {
                         "Authorization": f"Bearer {self.api_key}",
                         "Content-Type": "application/json"
                     }
-                    
+
                     payload = {
                         "model": self.image_model,
                         "messages": [
@@ -87,8 +90,7 @@ class AITunnelService:
                         "modalities": ["image", "text"],
                         "max_tokens": 1000
                     }
-                    
-                    # Исправляем ошибку с timeout
+
                     timeout_obj = aiohttp.ClientTimeout(total=60)
                     async with session.post(
                         f"{self.base_url}/chat/completions",
@@ -99,17 +101,17 @@ class AITunnelService:
                         if response.status == 200:
                             result = await response.json()
                             logger.info(f"Ответ от Gemini API получен")
-                            
+
                             if 'choices' in result and len(result['choices']) > 0:
                                 message = result['choices'][0].get('message', {})
-                                
+
                                 if 'images' in message:
                                     for img in message['images']:
                                         if 'image_url' in img and 'url' in img['image_url']:
                                             image_url = img['image_url']['url']
                                             results.append(image_url)
                                             logger.info(f"Получено изображение: {image_url[:50]}...")
-                                
+
                                 elif 'content' in message and message['content']:
                                     content = message['content']
                                     if content.startswith('data:image') or len(content) > 1000:
@@ -124,7 +126,7 @@ class AITunnelService:
                         else:
                             error_text = await response.text()
                             logger.error(f"Ошибка Gemini API: {response.status}")
-                            
+
             except asyncio.TimeoutError:
                 logger.error(f"Таймаут при генерации фото #{i+1}")
             except Exception as e:
@@ -135,6 +137,5 @@ class AITunnelService:
 
     @staticmethod
     def _encode_image(image_path: str) -> str:
-        """Кодирует изображение в base64"""
         with open(image_path, "rb") as f:
             return base64.b64encode(f.read()).decode("utf-8")

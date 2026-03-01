@@ -14,13 +14,28 @@ class AITunnelService:
         self.base_url = "https://api.aitunnel.ru/v1"
         self.image_model = Config.AITUNNEL_IMAGE_MODEL
 
-    async def generate_photos(self, user_photo_paths: list, style_key: str, num_images: int = 1) -> list:
+    async def generate_photos(self, user_photo_paths: list, style_key: str, num_images: int = 1, gender=None) -> list:
+        """
+        Генерирует изображения через AI Tunnel API с моделью Gemini 2.5 Flash Image.
+        :param user_photo_paths: список путей к фото пользователя
+        :param style_key: ключ стиля из Config.STYLES
+        :param num_images: количество изображений (по умолчанию 1)
+        :param gender: пол пользователя ("male" / "female") – влияет на подстановку в промпт
+        """
         style = Config.STYLES.get(style_key)
         if not style:
             raise ValueError(f"Unknown style: {style_key}")
 
-        prompt = style["prompt"]
-        logger.info(f"Генерация фото в стиле {style_key}, модель: {self.image_model}")
+        # Определяем субъект в зависимости от пола
+        if gender == 'male':
+            subject = "this man"
+        elif gender == 'female':
+            subject = "this woman"
+        else:
+            subject = "this person"
+
+        prompt = style["prompt"].replace("{token}", subject)
+        logger.info(f"Генерация фото в стиле {style_key}, субъект: {subject}")
         
         results = []
         
@@ -73,11 +88,13 @@ class AITunnelService:
                         "max_tokens": 1000
                     }
                     
+                    # Исправляем ошибку с timeout
+                    timeout_obj = aiohttp.ClientTimeout(total=60)
                     async with session.post(
                         f"{self.base_url}/chat/completions",
                         headers=headers,
                         json=payload,
-                        timeout=60  # Увеличиваем таймаут до 60 секунд
+                        timeout=timeout_obj
                     ) as response:
                         if response.status == 200:
                             result = await response.json()
@@ -86,7 +103,6 @@ class AITunnelService:
                             if 'choices' in result and len(result['choices']) > 0:
                                 message = result['choices'][0].get('message', {})
                                 
-                                # Сохраняем результат в файл
                                 if 'images' in message:
                                     for img in message['images']:
                                         if 'image_url' in img and 'url' in img['image_url']:

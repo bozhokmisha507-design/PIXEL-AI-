@@ -7,17 +7,20 @@ class Database:
 
     async def init(self):
         async with aiosqlite.connect(self.db_path) as db:
+            # Таблица пользователей
             await db.execute("""
                 CREATE TABLE IF NOT EXISTS users (
                     user_id INTEGER PRIMARY KEY,
                     username TEXT,
                     first_name TEXT,
+                    gender TEXT DEFAULT NULL,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     state TEXT DEFAULT 'new',
                     photo_count INTEGER DEFAULT 0
                 )
             """)
 
+            # Таблица фотографий
             await db.execute("""
                 CREATE TABLE IF NOT EXISTS photos (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -27,6 +30,19 @@ class Database:
                     photo_type TEXT DEFAULT 'input',
                     style TEXT,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (user_id) REFERENCES users(user_id)
+                )
+            """)
+
+            # Таблица генераций
+            await db.execute("""
+                CREATE TABLE IF NOT EXISTS generations (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id INTEGER,
+                    style TEXT,
+                    status TEXT DEFAULT 'completed',
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    completed_at TIMESTAMP,
                     FOREIGN KEY (user_id) REFERENCES users(user_id)
                 )
             """)
@@ -116,3 +132,22 @@ class Database:
                 (user_id, style, status, datetime.now())
             )
             await db.commit()
+
+    async def set_user_gender(self, user_id: int, gender: str):
+        """Сохраняет пол пользователя."""
+        async with aiosqlite.connect(self.db_path) as db:
+            await db.execute(
+                "UPDATE users SET gender = ? WHERE user_id = ?",
+                (gender, user_id)
+            )
+            await db.commit()
+
+    async def get_user_gender(self, user_id: int) -> str | None:
+        """Возвращает пол пользователя или None."""
+        async with aiosqlite.connect(self.db_path) as db:
+            cursor = await db.execute(
+                "SELECT gender FROM users WHERE user_id = ?",
+                (user_id,)
+            )
+            row = await cursor.fetchone()
+            return row[0] if row else None

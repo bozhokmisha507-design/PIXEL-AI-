@@ -10,13 +10,13 @@ ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
 if ROOT_DIR not in sys.path:
     sys.path.insert(0, ROOT_DIR)
 
-from telegram.ext import Application, CommandHandler, MessageHandler, filters, ConversationHandler
+from telegram.ext import Application, CommandHandler, MessageHandler, filters, ConversationHandler, CallbackQueryHandler
 from telegram import Update
 
 from config import Config
 from database.db import Database
 
-from handlers.start import start_handler, help_handler, handle_main_menu_buttons
+from handlers.start import start_handler, help_handler, handle_main_menu_buttons, gender_callback
 from handlers.menu import menu_handler
 from handlers.styles import styles_handler, show_styles_cb, style_selected_cb
 from handlers.upload import upload_conversation
@@ -67,6 +67,9 @@ def main():
     # Inline-обработчики для стилей
     application.add_handler(show_styles_cb)
     application.add_handler(style_selected_cb)
+    
+    # Обработчик выбора пола (inline-кнопки)
+    application.add_handler(CallbackQueryHandler(gender_callback, pattern="^set_gender_"))
     
     # Кнопки главного меню
     application.add_handler(MessageHandler(

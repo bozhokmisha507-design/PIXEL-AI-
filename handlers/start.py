@@ -1,9 +1,8 @@
-from telegram import Update
-from telegram.ext import ContextTypes, CommandHandler, MessageHandler, filters
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import ContextTypes, CommandHandler, CallbackQueryHandler
 from handlers.menu import get_main_menu_keyboard
 
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Обработчик команды /start"""
     if not update.message or not update.effective_user:
         return
 
@@ -11,24 +10,54 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     await db.get_or_create_user(user.id, user.username, user.first_name)
 
-    welcome_text = (
-        f"🎨 *Привет, {user.first_name}!*\n\n"
-        f"Добро пожаловать в *AI Фотосессия Бот*! 📸\n\n"
-        f"Я помогу тебе создать потрясающие профессиональные "
-        f"фотографии с помощью искусственного интеллекта.\n\n"
-        f"🔹 *Как это работает:*\n\n"
-        f"1️⃣ *Загрузи селфи* — отправь мне 5-20 своих фотографий\n"
-        f"2️⃣ *Выбери стиль* — бизнес, fashion, casual, арт и др.\n"
-        f"3️⃣ *Получи фотосессию* — 1 уникальное фото!\n\n"
-        f"📌 *Команды:*\n"
-        f"/upload — Загрузить селфи\n"
-        f"/generate — Сгенерировать фотосессию\n"
-        f"/styles — Посмотреть доступные стили\n"
-        f"/clean — Очистить все селфи\n"
-        f"/help — Помощь\n\n"
-        f"Используй кнопки внизу для навигации! 👇"
+    gender = await db.get_user_gender(user.id)
+    if gender is None:
+        keyboard = [
+            [InlineKeyboardButton("👨 Мужской", callback_data="set_gender_male")],
+            [InlineKeyboardButton("👩 Женский", callback_data="set_gender_female")]
+        ]
+        await update.message.reply_text(
+            "Пожалуйста, укажите ваш пол, чтобы мы могли подбирать стили правильно:",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+        return
+
+    await show_welcome(update, context, user.first_name)
+
+async def gender_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    if query is None or query.data is None:
+        return
+    await query.answer()
+    gender = query.data.replace("set_gender_", "")
+    
+    if update.effective_user is None:
+        return
+    user_id = update.effective_user.id
+    db = context.bot_data['db']
+    await db.set_user_gender(user_id, gender)
+
+    await query.edit_message_text(
+        f"✅ Пол сохранён: {'мужской' if gender == 'male' else 'женский'}.\n\n"
+        "Теперь вы можете пользоваться ботом!"
+    )
+    await context.bot.send_message(
+        chat_id=user_id,
+        text="👇 Главное меню:",
+        reply_markup=get_main_menu_keyboard()
     )
 
+async def show_welcome(update: Update, context: ContextTypes.DEFAULT_TYPE, first_name: str):
+    if update.message is None:
+        return
+    welcome_text = (
+        f"🎨 *Привет, {first_name}!*\n\n"
+        f"Добро пожаловать в *AI Фотосессия Бот*! 📸\n\n"
+        f"1️⃣ Загрузи селфи (2-5 фото)\n"
+        f"2️⃣ Выбери стиль\n"
+        f"3️⃣ Получи фотосессию!\n\n"
+        f"Команды: /upload, /generate, /styles, /help"
+    )
     await update.message.reply_text(
         welcome_text,
         parse_mode='Markdown',
@@ -36,60 +65,30 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Обработчик команды /help"""
     if not update.message:
         return
-
-    help_text = (
-        "📖 *Подробная инструкция:*\n\n"
-        "*📸 Этап 1: Загрузка фотографий*\n"
-        "• Нажми кнопку «📤 Загрузить фото» внизу\n"
-        "• Загрузи от 5 до 20 своих фотографий\n"
-        "• Фото должны быть чёткими, с хорошим освещением\n"
-        "• Используй разные ракурсы\n\n"
-        "*🎨 Этап 2: Генерация*\n"
-        "• Нажми кнопку «📸 Генерировать»\n"
-        "• Выбери стиль из списка\n"
-        "• Подожди 1-2 минуты\n"
-        "• Получи уникальное фото!\n\n"
-        "*🗑 Очистка фото*\n"
-        "• Нажми «🗑 Очистить селфи» чтобы удалить все загруженные фото\n\n"
-        "*💡 Советы:*\n"
-        "• Загружай качественные фото\n"
-        "• Показывай лицо полностью\n"
-        "• Используй естественное освещение"
-    )
-
-    await update.message.reply_text(
-        help_text,
-        parse_mode='Markdown',
-        reply_markup=get_main_menu_keyboard()
-    )
+    help_text = "📖 Загрузи фото через /upload, затем /generate для создания фотосессии"
+    await update.message.reply_text(help_text, reply_markup=get_main_menu_keyboard())
 
 async def handle_main_menu_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Обработчик нажатий на кнопки главного меню"""
+    if not update.message or not update.effective_user:
+        return
     text = update.message.text
     
     if text == "📤 Загрузить фото":
         from handlers.upload import upload_command
-        # Запускаем загрузку фото
         await upload_command(update, context)
-    
     elif text == "📸 Генерировать":
         from handlers.generate import generate_command
         await generate_command(update, context)
-    
     elif text == "🖼️ Стили":
         from handlers.styles import styles_command
         await styles_command(update, context)
-    
     elif text == "❓ Помощь":
         await help_command(update, context)
-    
     elif text == "🗑 Очистить селфи":
         from handlers.clean import clean_photos_command
         await clean_photos_command(update, context)
-    
     elif text == "🏠 Главное меню":
         await start_command(update, context)
 

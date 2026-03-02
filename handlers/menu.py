@@ -3,7 +3,7 @@ from telegram.ext import ContextTypes, CommandHandler
 
 def get_main_menu_keyboard():
     buttons = [
-        [KeyboardButton("📤 Загрузить фото"), KeyboardButton("📸 Генерировать")],
+        [KeyboardButton("📤 Загрузить фото"), KeyboardButton("💳 Купить генерацию")],
         [KeyboardButton("🖼️ Стили"), KeyboardButton("❓ Помощь")],
         [KeyboardButton("🗑 Очистить селфи"), KeyboardButton("🏠 Главное меню")]
     ]
@@ -11,12 +11,11 @@ def get_main_menu_keyboard():
         buttons,
         resize_keyboard=True,
         one_time_keyboard=False,
-        input_field_placeholder="Выберите действие..."
+        input_field_placeholder="Выберите действие…"
     )
 
 async def menu_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not update.message:
-        return
+    """Обработчик команды /menu"""
     await update.message.reply_text(
         "📌 *Главное меню*\n\nВыберите действие:",
         parse_mode='Markdown',

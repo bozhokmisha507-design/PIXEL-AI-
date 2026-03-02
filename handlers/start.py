@@ -43,7 +43,8 @@ async def gender_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
     await context.bot.send_message(
         chat_id=user_id,
-        text="👇 Главное меню:",
+        text="👇 *Главное меню*:",
+        parse_mode='Markdown',
         reply_markup=get_main_menu_keyboard()
     )
 
@@ -56,7 +57,7 @@ async def show_welcome(update: Update, context: ContextTypes.DEFAULT_TYPE, first
         f"1️⃣ Загрузи селфи (2-5 фото)\n"
         f"2️⃣ Выбери стиль\n"
         f"3️⃣ Получи фотосессию!\n\n"
-        f"Команды: /upload, /generate, /styles, /help"
+        f"Команды: /upload, /buy, /styles, /help"
     )
     await update.message.reply_text(
         welcome_text,
@@ -67,8 +68,15 @@ async def show_welcome(update: Update, context: ContextTypes.DEFAULT_TYPE, first
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message:
         return
-    help_text = "📖 Загрузи фото через /upload, затем /generate для создания фотосессии"
-    await update.message.reply_text(help_text, reply_markup=get_main_menu_keyboard())
+    help_text = (
+        "📖 *Инструкция*\n\n"
+        "1. Загрузите свои селфи через кнопку «📤 Загрузить фото».\n"
+        "2. Выберите стиль фотосессии через кнопку «🖼️ Стили».\n"
+        "3. Для получения фото нажмите «💳 Купить генерацию» и оплатите.\n"
+        "4. После оплаты фото придёт автоматически.\n\n"
+        "Если возникли вопросы, пишите super.mike.4@ya.ru."
+    )
+    await update.message.reply_text(help_text, parse_mode='Markdown', reply_markup=get_main_menu_keyboard())
 
 async def handle_main_menu_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message or not update.effective_user:
@@ -78,9 +86,9 @@ async def handle_main_menu_buttons(update: Update, context: ContextTypes.DEFAULT
     if text == "📤 Загрузить фото":
         from handlers.upload import upload_command
         await upload_command(update, context)
-    elif text == "📸 Генерировать":
-        from handlers.generate import generate_command
-        await generate_command(update, context)
+    elif text == "💳 Купить генерацию":
+        from handlers.payment import buy_command
+        await buy_command(update, context)
     elif text == "🖼️ Стили":
         from handlers.styles import styles_command
         await styles_command(update, context)

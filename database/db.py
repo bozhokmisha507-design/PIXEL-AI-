@@ -149,7 +149,6 @@ class Database:
             await db.commit()
 
     async def set_user_gender(self, user_id: int, gender: str):
-        """Сохраняет пол пользователя."""
         async with aiosqlite.connect(self.db_path) as db:
             await db.execute(
                 "UPDATE users SET gender = ? WHERE user_id = ?",
@@ -158,7 +157,6 @@ class Database:
             await db.commit()
 
     async def get_user_gender(self, user_id: int) -> str | None:
-        """Возвращает пол пользователя или None."""
         async with aiosqlite.connect(self.db_path) as db:
             cursor = await db.execute(
                 "SELECT gender FROM users WHERE user_id = ?",
@@ -167,9 +165,8 @@ class Database:
             row = await cursor.fetchone()
             return row[0] if row else None
 
-    # Методы для работы с заказами (платежи)
+    # Методы для работы с заказами
     async def create_order(self, user_id: int, label: str, amount: float) -> None:
-        """Создаёт новый заказ."""
         async with aiosqlite.connect(self.db_path) as db:
             await db.execute(
                 "INSERT INTO orders (user_id, label, amount) VALUES (?, ?, ?)",
@@ -178,7 +175,6 @@ class Database:
             await db.commit()
 
     async def get_unprocessed_orders(self) -> list:
-        """Возвращает список необработанных заказов (processed = 0)."""
         async with aiosqlite.connect(self.db_path) as db:
             cursor = await db.execute(
                 "SELECT label, user_id FROM orders WHERE processed = 0"
@@ -187,7 +183,6 @@ class Database:
             return [{"label": row[0], "user_id": row[1]} for row in rows]
 
     async def mark_order_processed(self, label: str) -> None:
-        """Помечает заказ как обработанный."""
         async with aiosqlite.connect(self.db_path) as db:
             await db.execute(
                 "UPDATE orders SET processed = 1 WHERE label = ?",

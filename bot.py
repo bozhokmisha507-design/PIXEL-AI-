@@ -20,8 +20,8 @@ from handlers.start import start_handler, help_handler, handle_main_menu_buttons
 from handlers.menu import menu_handler
 from handlers.styles import styles_handler, show_styles_cb, style_selected_cb
 from handlers.upload import upload_conversation
-from handlers.generate import generate_handler
 from handlers.clean import clean_photos_handler
+from handlers.payment import buy_handler, check_payments_job  # импортируем платёжные обработчики
 
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
@@ -59,7 +59,6 @@ def main():
     application.add_handler(help_handler)
     application.add_handler(menu_handler)
     application.add_handler(styles_handler)
-    application.add_handler(generate_handler)
     
     # ConversationHandler для загрузки фото
     application.add_handler(upload_conversation)
@@ -68,14 +67,17 @@ def main():
     application.add_handler(show_styles_cb)
     application.add_handler(style_selected_cb)
     
-    # Обработчик выбора пола (inline-кнопки)
+    # Обработчик выбора пола
     application.add_handler(CallbackQueryHandler(gender_callback, pattern="^set_gender_"))
+    
+    # Команда покупки
+    application.add_handler(buy_handler)
     
     # Кнопки главного меню
     application.add_handler(MessageHandler(
         filters.Text([
             "📤 Загрузить фото", 
-            "📸 Генерировать", 
+            "💳 Купить генерацию", 
             "🖼️ Стили", 
             "❓ Помощь",
             "🗑 Очистить селфи", 
@@ -86,6 +88,10 @@ def main():
     
     # Обработчик очистки
     application.add_handler(clean_photos_handler)
+    
+    # Фоновая задача проверки платежей (каждые 15 секунд)
+    job_queue = application.job_queue
+    job_queue.run_repeating(check_payments_job, interval=15, first=10)
     
     logger.info("🚀 Бот запущен...")
     application.run_polling(allowed_updates=Update.ALL_TYPES)

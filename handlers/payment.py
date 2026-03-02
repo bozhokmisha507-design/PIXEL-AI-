@@ -1,0 +1,158 @@
+import uuid
+import logging
+import base64
+import re
+from telegram import Update
+from telegram.ext import ContextTypes, CommandHandler
+from yoomoney import Quickpay, Client
+from config import Config
+from handlers.menu import get_main_menu_keyboard
+from services.aitunnel_service import AITunnelService
+
+logger = logging.getLogger(__name__)
+
+async def buy_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Обработчик команды /buy – создаёт ссылку на оплату."""
+    user_id = update.effective_user.id
+    label = f"order_{user_id}_{uuid.uuid4().hex[:8]}"
+    amount = Config.PRICE_PER_GENERATION
+
+    # Сохраняем заказ в БД
+    db = context.bot_data['db']
+    await db.create_order(user_id, label, amount)
+
+    quickpay = Quickpay(
+        receiver=Config.YOOMONEY_WALLET,
+        quickpay_form="shop",
+        targets="Оплата генерации фото в PIXEL AI",
+        paymentType="AC",  # оплата картой
+        sum=amount,
+        label=label
+    )
+    payment_url = quickpay.redirected_url
+
+    await update.message.reply_text(
+        f"✨ Стоимость генерации: {amount} руб.\n\n"
+        f"Ссылка для оплаты:\n{payment_url}\n\n"
+        "После успешной оплаты фото придёт автоматически в течение минуты.",
+        disable_web_page_preview=True,
+        reply_markup=get_main_menu_keyboard()
+    )
+
+async def check_payments_job(context: ContextTypes.DEFAULT_TYPE):
+    """Фоновая задача: проверяет неоплаченные заказы."""
+    access_token = Config.YOOMONEY_ACCESS_TOKEN
+    if not access_token:
+        logger.error("YOOMONEY_ACCESS_TOKEN не задан")
+        return
+
+    db = context.bot_data['db']
+    unprocessed = await db.get_unprocessed_orders()
+    if not unprocessed:
+        return
+
+    client = Client(access_token)
+    for order in unprocessed:
+        label = order['label']
+        user_id = order['user_id']
+
+        try:
+            history = client.operation_history(label=label)
+            for operation in history.operations:
+                if operation.status == 'success' and operation.label == label:
+                    await db.mark_order_processed(label)
+                    logger.info(f"Платёж подтверждён для user {user_id}, label {label}")
+
+                    # Запускаем генерацию фото с сохранённым стилем
+                    await generate_paid_photo(user_id, context)
+                    break
+        except Exception as e:
+            logger.error(f"Ошибка при проверке заказа {label}: {e}")
+
+async def generate_paid_photo(user_id: int, context: ContextTypes.DEFAULT_TYPE):
+    """Генерирует фото после успешной оплаты, используя сохранённый стиль."""
+    # Получаем сохранённый стиль из user_data
+    style_key = context.user_data.get('selected_style')
+    if not style_key:
+        # Если стиль не выбран – просим выбрать заново и выходим
+        await context.bot.send_message(
+            chat_id=user_id,
+            text="❌ Стиль не был выбран. Пожалуйста, сначала выберите стиль через меню «🖼️ Стили»."
+        )
+        # Показываем меню стилей (можно импортировать функцию)
+        from handlers.styles import show_styles_menu
+        await show_styles_menu(user_id, context)
+        return
+
+    style = Config.STYLES.get(style_key)
+    if not style:
+        await context.bot.send_message(
+            chat_id=user_id,
+            text="❌ Выбранный стиль не найден. Попробуйте выбрать стиль заново."
+        )
+        return
+
+    db = context.bot_data['db']
+    photo_paths = await db.get_user_photos(user_id, "input")
+    if not photo_paths:
+        await context.bot.send_message(
+            chat_id=user_id,
+            text="❌ Не найдены ваши фото. Сначала загрузите их через /upload."
+        )
+        return
+
+    gender = await db.get_user_gender(user_id)
+
+    aitunnel = AITunnelService()
+
+    try:
+        results = await aitunnel.generate_photos(
+            user_photo_paths=photo_paths,
+            style_key=style_key,
+            num_images=1,
+            gender=gender
+        )
+
+        if results:
+            await context.bot.send_message(
+                chat_id=user_id,
+                text=f"✅ Оплата получена! Ваше фото в стиле {style['name']}:"
+            )
+            # Отправляем фото
+            for image_data in results:
+                try:
+                    if image_data.startswith('data:image'):
+                        base64_str = re.sub('^data:image/.+;base64,', '', image_data)
+                        image_bytes = base64.b64decode(base64_str)
+                        await context.bot.send_photo(chat_id=user_id, photo=image_bytes)
+                    elif image_data.startswith('http'):
+                        await context.bot.send_photo(chat_id=user_id, photo=image_data)
+                    else:
+                        await context.bot.send_message(chat_id=user_id, text=image_data)
+                except Exception as e:
+                    logger.error(f"Ошибка отправки фото: {e}")
+        else:
+            await context.bot.send_message(
+                chat_id=user_id,
+                text="❌ Не удалось сгенерировать фото. Попробуйте позже."
+            )
+    except Exception as e:
+        logger.error(f"Ошибка генерации после оплаты: {e}", exc_info=True)
+        await context.bot.send_message(
+            chat_id=user_id,
+            text="❌ Произошла ошибка при генерации. Мы уже работаем над этим."
+        )
+
+    # Очищаем сохранённый стиль (опционально)
+    context.user_data.pop('selected_style', None)
+
+    # Возвращаем главное меню
+    await context.bot.send_message(
+        chat_id=user_id,
+        text="👇 *Главное меню*:",
+        parse_mode='Markdown',
+        reply_markup=get_main_menu_keyboard()
+    )
+
+# Обработчик команды
+buy_handler = CommandHandler("buy", buy_command)

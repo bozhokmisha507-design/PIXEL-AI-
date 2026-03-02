@@ -2,16 +2,10 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes, CommandHandler, CallbackQueryHandler
 from config import Config
 from handlers.menu import get_main_menu_keyboard
-from services.aitunnel_service import AITunnelService
 import logging
-import asyncio
-import base64
-import re
 import aiohttp
-import os
 
 logger = logging.getLogger(__name__)
-aitunnel_service = AITunnelService()
 
 async def show_styles_menu(target, context=None):
     """Универсальная функция показа меню стилей"""
@@ -70,7 +64,7 @@ async def download_image(url, save_path):
     return None
 
 async def style_selected_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Обработчик выбора стиля из inline-кнопок"""
+    """Обработчик выбора стиля – сохраняет стиль и предлагает оплатить."""
     query = update.callback_query
     if query is None or query.data is None:
         return
@@ -83,8 +77,6 @@ async def style_selected_callback(update: Update, context: ContextTypes.DEFAULT_
         await query.edit_message_text("❌ Неизвестный стиль.")
         return
 
-    if update.effective_user is None:
-        return
     user_id = update.effective_user.id
     db = context.bot_data['db']
     
@@ -95,107 +87,17 @@ async def style_selected_callback(update: Update, context: ContextTypes.DEFAULT_
             f"⚠️ Нужно минимум {Config.MIN_PHOTOS} фото. Сейчас: {photo_count}\n\n"
             f"Нажми «📤 Загрузить фото» в главном меню."
         )
-        await context.bot.send_message(
-            chat_id=user_id,
-            text="Главное меню:",
-            reply_markup=get_main_menu_keyboard()
-        )
-        return
-    
-    # Получаем пути к фото
-    photo_paths = await db.get_user_photos(user_id, "input")
-    
-    if not photo_paths:
-        await query.edit_message_text("❌ Ошибка получения фото.")
-        await context.bot.send_message(
-            chat_id=user_id,
-            text="Главное меню:",
-            reply_markup=get_main_menu_keyboard()
-        )
         return
 
-    # Сообщаем о начале генерации
+    # Сохраняем выбранный стиль в user_data
+    context.user_data['selected_style'] = style_key
+
     await query.edit_message_text(
-        f"🚀 *Генерация запущена!*\n\n"
-        f"Стиль: {style['name']}\n"
-        f"Используется {len(photo_paths)} фото\n\n"
-        f"⏳ Подожди 1-2 минуты...",
+        f"✅ Стиль «{style['name']}» выбран.\n\n"
+        f"Теперь нажми «💳 Купить генерацию», чтобы оплатить и получить фото.",
         parse_mode='Markdown'
     )
-
-    try:
-        # Получаем пол пользователя
-        gender = await db.get_user_gender(user_id)
-        
-        # Вызываем AI Tunnel для генерации
-        logger.info(f"Запуск генерации для пользователя {user_id}, стиль {style_key}")
-        
-        results = await aitunnel_service.generate_photos(
-            user_photo_paths=photo_paths,
-            style_key=style_key,
-            num_images=1,
-            gender=gender
-        )
-        
-        logger.info(f"Результаты генерации: {results}")
-        
-        if results and len(results) > 0:
-            await context.bot.send_message(
-                chat_id=user_id,
-                text=f"✅ *Готово!*\n\n"
-                     f"Вот твое фото в стиле {style['name']}:",
-                parse_mode='Markdown'
-            )
-            
-            for i, image_data in enumerate(results):
-                try:
-                    if image_data.startswith('data:image'):
-                        base64_str = re.sub('^data:image/.+;base64,', '', image_data)
-                        image_bytes = base64.b64decode(base64_str)
-                        
-                        await context.bot.send_photo(
-                            chat_id=user_id,
-                            photo=image_bytes,
-                            caption=f"✨ *{style['name']}*",
-                            parse_mode='Markdown'
-                        )
-                        logger.info(f"Фото #{i+1} отправлено из base64")
-                        
-                    elif image_data.startswith('http'):
-                        await context.bot.send_photo(
-                            chat_id=user_id,
-                            photo=image_data,
-                            caption=f"✨ *{style['name']}*",
-                            parse_mode='Markdown'
-                        )
-                        logger.info(f"Фото #{i+1} отправлено по URL")
-                    else:
-                        await context.bot.send_message(
-                            chat_id=user_id,
-                            text=f"🖼️ {image_data}"
-                        )
-                except Exception as e:
-                    logger.error(f"Ошибка отправки фото: {e}")
-                    if image_data.startswith('http'):
-                        await context.bot.send_message(
-                            chat_id=user_id,
-                            text=f"🖼️ [Ссылка на фото]({image_data})",
-                            parse_mode='Markdown'
-                        )
-        else:
-            await context.bot.send_message(
-                chat_id=user_id,
-                text="❌ Не удалось сгенерировать фото. Попробуй позже."
-            )
-
-    except Exception as e:
-        logger.error(f"Ошибка генерации: {e}", exc_info=True)
-        await context.bot.send_message(
-            chat_id=user_id,
-            text=f"❌ Ошибка при генерации: {str(e)[:100]}..."
-        )
-
-    # Возвращаем главное меню
+    # Возвращаем главное меню с кнопками
     await context.bot.send_message(
         chat_id=user_id,
         text="👇 *Главное меню*:",
@@ -203,6 +105,7 @@ async def style_selected_callback(update: Update, context: ContextTypes.DEFAULT_
         reply_markup=get_main_menu_keyboard()
     )
 
+# Обработчики
 styles_handler = CommandHandler("styles", styles_command)
 show_styles_cb = CallbackQueryHandler(show_styles_callback, pattern="^show_styles$")
 style_selected_cb = CallbackQueryHandler(style_selected_callback, pattern="^select_style_")

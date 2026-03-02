@@ -1,15 +1,5 @@
 {
-    "python.defaultInterpreterPath": "C:\\Users\\Mihai\\AppData\\Local\\Microsoft\\WindowsApps\\python.exe",
-    "python.terminal.activateEnvironment": true,
-    "python.terminal.activateEnvInCurrentTerminal": true,
-    "python.languageServer": "Pylance",
-    "python.analysis.typeCheckingMode": "basic",
     "python.analysis.extraPaths": [
-        "./handlers",
-        "./services",
-        "./database"
-    ],
-    "terminal.integrated.env.windows": {
-        "PATH": "C:\\Users\\Mihai\\AppData\\Local\\Microsoft\\WindowsApps\\;C:\\Users\\Mihai\\AppData\\Local\\Microsoft\\WindowsApps\\PythonSoftwareFoundation.Python.3.12_qbz5n2kfra8p0;${env:PATH}"
-    }
+        "${workspaceFolder}/venv/Lib/site-packages"
+    ]
 }

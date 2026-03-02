@@ -46,6 +46,21 @@ class Database:
                     FOREIGN KEY (user_id) REFERENCES users(user_id)
                 )
             """)
+
+            # Таблица заказов для платежей
+            await db.execute("""
+                CREATE TABLE IF NOT EXISTS orders (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id INTEGER,
+                    label TEXT UNIQUE,
+                    amount REAL,
+                    status TEXT DEFAULT 'pending',
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    processed BOOLEAN DEFAULT 0,
+                    FOREIGN KEY (user_id) REFERENCES users(user_id)
+                )
+            """)
+
             await db.commit()
 
     async def get_or_create_user(self, user_id, username=None, first_name=None):
@@ -151,3 +166,31 @@ class Database:
             )
             row = await cursor.fetchone()
             return row[0] if row else None
+
+    # Методы для работы с заказами (платежи)
+    async def create_order(self, user_id: int, label: str, amount: float) -> None:
+        """Создаёт новый заказ."""
+        async with aiosqlite.connect(self.db_path) as db:
+            await db.execute(
+                "INSERT INTO orders (user_id, label, amount) VALUES (?, ?, ?)",
+                (user_id, label, amount)
+            )
+            await db.commit()
+
+    async def get_unprocessed_orders(self) -> list:
+        """Возвращает список необработанных заказов (processed = 0)."""
+        async with aiosqlite.connect(self.db_path) as db:
+            cursor = await db.execute(
+                "SELECT label, user_id FROM orders WHERE processed = 0"
+            )
+            rows = await cursor.fetchall()
+            return [{"label": row[0], "user_id": row[1]} for row in rows]
+
+    async def mark_order_processed(self, label: str) -> None:
+        """Помечает заказ как обработанный."""
+        async with aiosqlite.connect(self.db_path) as db:
+            await db.execute(
+                "UPDATE orders SET processed = 1 WHERE label = ?",
+                (label,)
+            )
+            await db.commit()

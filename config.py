@@ -11,7 +11,7 @@ class Config:
     # ЮMoney (оставляем как есть – платёжка не сломается)
     YOOMONEY_ACCESS_TOKEN = os.getenv("YOOMONEY_ACCESS_TOKEN")
     YOOMONEY_WALLET = os.getenv("YOOMONEY_WALLET", "")
-    PRICE_PER_GENERATION = 1
+    PRICE_PER_GENERATION = 38
     
     UPLOAD_DIR = "uploads"
     OUTPUT_DIR = "outputs"

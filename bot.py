@@ -106,7 +106,10 @@ async def main_async():
     )
 
 def main():
-    asyncio.run(main_async())
+    # Получаем текущий цикл событий (который уже запущен)
+    loop = asyncio.get_event_loop()
+    # Запускаем асинхронную функцию в этом цикле
+    loop.run_until_complete(main_async())
 
 if __name__ == "__main__":
     main()

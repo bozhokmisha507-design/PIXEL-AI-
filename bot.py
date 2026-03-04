@@ -1,6 +1,7 @@
 import os
 import sys
 import logging
+import asyncio
 import warnings
 from telegram.warnings import PTBUserWarning
 
@@ -21,7 +22,10 @@ from handlers.menu import menu_handler
 from handlers.styles import styles_handler, show_styles_cb, style_selected_cb
 from handlers.upload import upload_conversation
 from handlers.clean import clean_photos_handler
-from handlers.payment import buy_handler, check_payments_job  # импортируем платёжные обработчики
+from handlers.payment import buy_handler, check_payments_job
+
+# Импортируем функцию запуска веб-сервера
+from webhook_server import start_webhook_server
 
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
@@ -41,7 +45,7 @@ async def post_init(application: Application) -> None:
     except Exception as e:
         logger.warning(f"Не удалось получить информацию о боте: {e}")
 
-def main():
+async def main_async():
     if not Config.BOT_TOKEN:
         logger.error("❌ BOT_TOKEN не найден! Проверьте .env файл")
         return
@@ -93,8 +97,16 @@ def main():
     job_queue = application.job_queue
     job_queue.run_repeating(check_payments_job, interval=15, first=10)
     
-    logger.info("🚀 Бот запущен...")
-    application.run_polling(allowed_updates=Update.ALL_TYPES)
+    logger.info("🚀 Бот запускается...")
+    
+    # Запускаем polling и веб-сервер одновременно
+    await asyncio.gather(
+        application.run_polling(allowed_updates=Update.ALL_TYPES),
+        start_webhook_server(application.bot, application.bot_data['db'])
+    )
+
+def main():
+    asyncio.run(main_async())
 
 if __name__ == "__main__":
     main()

@@ -99,17 +99,13 @@ async def main_async():
     
     logger.info("🚀 Бот запускается...")
     
-    # Запускаем polling и веб-сервер одновременно
-    await asyncio.gather(
-        application.run_polling(allowed_updates=Update.ALL_TYPES),
-        start_webhook_server(application.bot, application.bot_data['db'])
-    )
-
-def main():
-    # Получаем текущий цикл событий (который уже запущен)
-    loop = asyncio.get_event_loop()
-    # Запускаем асинхронную функцию в этом цикле
-    loop.run_until_complete(main_async())
+    # Запускаем веб-сервер как фоновую задачу
+    asyncio.create_task(start_webhook_server(application.bot, application.bot_data['db']))
+    
+    # Запускаем polling (он сам работает в текущем цикле)
+    await application.run_polling(allowed_updates=Update.ALL_TYPES)
 
 if __name__ == "__main__":
-    main()
+    # Получаем текущий цикл событий (уже запущен хостингом)
+    loop = asyncio.get_event_loop()
+    loop.run_until_complete(main_async())

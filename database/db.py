@@ -14,6 +14,7 @@ class Database:
                     username TEXT,
                     first_name TEXT,
                     gender TEXT DEFAULT NULL,
+                    selected_style TEXT DEFAULT NULL,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     state TEXT DEFAULT 'new',
                     photo_count INTEGER DEFAULT 0
@@ -63,6 +64,7 @@ class Database:
 
             await db.commit()
 
+    # ===== Пользователи =====
     async def get_or_create_user(self, user_id, username=None, first_name=None):
         async with aiosqlite.connect(self.db_path) as db:
             cursor = await db.execute(
@@ -165,7 +167,24 @@ class Database:
             row = await cursor.fetchone()
             return row[0] if row else None
 
-    # Методы для работы с заказами
+    async def set_user_selected_style(self, user_id: int, style_key: str):
+        async with aiosqlite.connect(self.db_path) as db:
+            await db.execute(
+                "UPDATE users SET selected_style = ? WHERE user_id = ?",
+                (style_key, user_id)
+            )
+            await db.commit()
+
+    async def get_user_selected_style(self, user_id: int) -> str | None:
+        async with aiosqlite.connect(self.db_path) as db:
+            cursor = await db.execute(
+                "SELECT selected_style FROM users WHERE user_id = ?",
+                (user_id,)
+            )
+            row = await cursor.fetchone()
+            return row[0] if row else None
+
+    # ===== Заказы =====
     async def create_order(self, user_id: int, label: str, amount: float) -> None:
         async with aiosqlite.connect(self.db_path) as db:
             await db.execute(
@@ -189,3 +208,14 @@ class Database:
                 (label,)
             )
             await db.commit()
+
+# ===== Глобальный экземпляр БД =====
+_db_instance = None
+
+async def get_db():
+    """Возвращает глобальный экземпляр БД, создавая его при первом вызове."""
+    global _db_instance
+    if _db_instance is None:
+        _db_instance = Database()
+        await _db_instance.init()
+    return _db_instance

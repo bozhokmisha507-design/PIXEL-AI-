@@ -15,7 +15,7 @@ from telegram.ext import Application, CommandHandler, MessageHandler, filters, C
 from telegram import Update
 
 from config import Config
-from database.db import Database
+from database.db import get_db  # Импортируем функцию
 
 from handlers.start import start_handler, help_handler, handle_main_menu_buttons, gender_callback
 from handlers.menu import menu_handler
@@ -24,7 +24,6 @@ from handlers.upload import upload_conversation
 from handlers.clean import clean_photos_handler
 from handlers.payment import buy_handler, check_payments_job
 
-# Импортируем функцию запуска веб-сервера
 from webhook_server import start_webhook_server
 
 logging.basicConfig(
@@ -34,30 +33,24 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 async def post_init(application: Application) -> None:
-    """Инициализация после создания приложения."""
-    db = Database()
-    await db.init()
-    application.bot_data['db'] = db
-    logger.info("✅ База данных инициализирована")
-
+    """Опционально: можно оставить для получения информации о боте."""
     try:
         bot_user = await application.bot.get_me()
         logger.info(f"🤖 Бот: @{bot_user.username}")
     except Exception as e:
         logger.warning(f"Не удалось получить информацию о боте: {e}")
 
-    # Запускаем веб-сервер как фоновую задачу
-    asyncio.create_task(start_webhook_server(application.bot, application.bot_data['db']))
-    logger.info("🌐 Веб-сервер запущен как фоновая задача")
-
 async def main_async():
-    """Основная асинхронная функция."""
     if not Config.BOT_TOKEN:
         logger.error("❌ BOT_TOKEN не найден! Проверьте .env файл")
         return
 
     Config.ensure_dirs()
     logger.info("📁 Папки созданы/проверены")
+
+    # Инициализируем БД (глобальный экземпляр)
+    db = await get_db()
+    logger.info("✅ База данных инициализирована")
 
     application = Application.builder()\
         .token(Config.BOT_TOKEN)\
@@ -91,29 +84,29 @@ async def main_async():
     job_queue = application.job_queue
     job_queue.run_repeating(check_payments_job, interval=15, first=10)
 
+    # Запускаем веб-сервер (ему тоже нужна БД, он её получит через get_db)
+    asyncio.create_task(start_webhook_server(application.bot))
+    logger.info("🌐 Веб-сервер запущен как фоновая задача")
+
     logger.info("🚀 Бот запускается...")
 
-    # Инициализируем приложение
+    # Ручной запуск (без run_polling, чтобы избежать конфликта циклов)
     await application.initialize()
     await application.start()
-
-    # Запускаем polling в фоне
     await application.updater.start_polling()
 
-    # Бесконечно ждём, пока бот работает (веб-сервер уже запущен)
     try:
+        # Бесконечное ожидание
         while True:
             await asyncio.sleep(3600)
     except asyncio.CancelledError:
         logger.info("Получен сигнал завершения")
     finally:
-        # Корректно останавливаем всё
         await application.updater.stop()
         await application.stop()
         await application.shutdown()
 
 if __name__ == "__main__":
-    # Получаем текущий цикл событий (уже запущен хостингом)
     loop = asyncio.get_event_loop()
     try:
         loop.run_until_complete(main_async())

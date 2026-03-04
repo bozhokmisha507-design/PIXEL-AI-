@@ -1,46 +1,55 @@
-from telegram import Update
-from telegram.ext import ContextTypes, MessageHandler, filters
-from handlers.menu import get_main_menu_keyboard
 import logging
+from telegram import Update
+from telegram.ext import ContextTypes, CommandHandler, MessageHandler, filters
+from database.db import get_db
+from handlers.menu import get_main_menu_keyboard
+from config import Config
+import os
+import shutil
 
 logger = logging.getLogger(__name__)
 
 async def clean_photos_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Очистка всех загруженных селфи"""
-    if not update.message or not update.effective_user:
+    """Очищает все загруженные фото пользователя."""
+    if not update.effective_user:
         return
-
     user_id = update.effective_user.id
-    db = context.bot_data['db']
-    
-    # Получаем количество фото до очистки
-    count = await db.get_user_photo_count(user_id)
-    
-    if count == 0:
+
+    db = await get_db()
+    photo_paths = await db.get_user_photos(user_id, "input")
+
+    if not photo_paths:
         await update.message.reply_text(
-            "📭 У тебя нет загруженных селфи.",
+            "📭 У вас нет сохранённых фото.",
             reply_markup=get_main_menu_keyboard()
         )
         return
-    
-    # Очищаем фото из базы данных
-    await db.clear_user_photos(user_id)
-    
-    # Очищаем физические файлы (если есть функция)
+
+    # Удаляем файлы
+    deleted_count = 0
+    for path in photo_paths:
+        try:
+            if os.path.exists(path):
+                os.remove(path)
+                deleted_count += 1
+        except Exception as e:
+            logger.error(f"Ошибка удаления файла {path}: {e}")
+
+    # Удаляем папку пользователя, если она пуста
+    user_dir = os.path.join(Config.UPLOAD_DIR, str(user_id))
     try:
-        from services.storage import StorageService
-        StorageService.cleanup_user_uploads(user_id)
-    except:
-        pass
-    
-    logger.info(f"Пользователь {user_id} очистил {count} фото")
-    
+        if os.path.exists(user_dir) and not os.listdir(user_dir):
+            os.rmdir(user_dir)
+    except Exception as e:
+        logger.error(f"Ошибка удаления папки {user_dir}: {e}")
+
+    # Очищаем записи в БД
+    await db.clear_user_photos(user_id)
+
+    logger.info(f"Пользователь {user_id} очистил {deleted_count} фото")
     await update.message.reply_text(
-        f"🗑 *Все {count} селфи удалены!*\n\n"
-        f"Теперь ты можешь загрузить новые фото.",
-        parse_mode='Markdown',
+        f"✅ Очищено {deleted_count} фото. Теперь можете загрузить новые.",
         reply_markup=get_main_menu_keyboard()
     )
 
-# Обработчик для кнопки
 clean_photos_handler = MessageHandler(filters.Text("🗑 Очистить селфи"), clean_photos_command)

@@ -2,6 +2,7 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes, CommandHandler, CallbackQueryHandler
 from config import Config
 from handlers.menu import get_main_menu_keyboard
+from database.db import get_db
 import logging
 import aiohttp
 
@@ -17,7 +18,7 @@ async def show_styles_menu(target, context=None):
                 callback_data=f"select_style_{key}"
             )
         ])
-    
+
     if isinstance(target, int):  # если передан user_id
         if context is None:
             return
@@ -78,8 +79,8 @@ async def style_selected_callback(update: Update, context: ContextTypes.DEFAULT_
         return
 
     user_id = update.effective_user.id
-    db = context.bot_data['db']
-    
+    db = await get_db()
+
     # Проверяем количество фото
     photo_count = await db.get_user_photo_count(user_id)
     if photo_count < Config.MIN_PHOTOS:
@@ -89,8 +90,8 @@ async def style_selected_callback(update: Update, context: ContextTypes.DEFAULT_
         )
         return
 
-    # Сохраняем выбранный стиль в user_data
-    context.user_data['selected_style'] = style_key
+    # Сохраняем выбранный стиль в БД
+    await db.set_user_selected_style(user_id, style_key)
 
     await query.edit_message_text(
         f"✅ Стиль «{style['name']}» выбран.\n\n"

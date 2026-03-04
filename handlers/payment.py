@@ -2,13 +2,14 @@ import uuid
 import logging
 import base64
 import re
+import os
 from telegram import Update, Bot, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes, CommandHandler, CallbackQueryHandler
 from yoomoney import Quickpay, Client
 from config import Config
 from handlers.menu import get_main_menu_keyboard
 from services.aitunnel_service import AITunnelService
-from database.db import Database
+from database.db import get_db
 
 logger = logging.getLogger(__name__)
 aitunnel_service = AITunnelService()
@@ -21,14 +22,11 @@ async def buy_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     amount = Config.PRICE_PER_GENERATION
 
     # Сохраняем заказ в БД
-    db = context.bot_data['db']
+    db = await get_db()
     await db.create_order(user_id, label, amount)
 
     # Формируем ссылку на оплату с notification_url
-    # notification_url должен быть публичным HTTPS-адресом вашего бота на хостинге
-    # Например: https://ваш-бот.bothost.ru/yoomoney-webhook
-    # Можно вынести в конфиг: Config.YOOMONEY_NOTIFICATION_URL
-    notification_url = Config.YOOMONEY_NOTIFICATION_URL  # добавьте эту переменную в config.py
+    notification_url = Config.YOOMONEY_NOTIFICATION_URL  # должна быть задана в config.py
 
     quickpay = Quickpay(
         receiver=Config.YOOMONEY_WALLET,
@@ -37,7 +35,7 @@ async def buy_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         paymentType="AC",  # оплата картой
         sum=amount,
         label=label,
-        notification_url=notification_url  # важно!
+        notification_url=notification_url
     )
     payment_url = quickpay.redirected_url
 
@@ -57,7 +55,7 @@ async def check_payments_job(context: ContextTypes.DEFAULT_TYPE):
         logger.error("YOOMONEY_ACCESS_TOKEN не задан")
         return
 
-    db = context.bot_data['db']
+    db = await get_db()
     unprocessed = await db.get_unprocessed_orders()
     if not unprocessed:
         return
@@ -76,7 +74,6 @@ async def check_payments_job(context: ContextTypes.DEFAULT_TYPE):
                     logger.info(f"Платёж подтверждён (фоновый) для user {user_id}, label {label}")
 
                     # Запускаем генерацию фото
-                    # Для этого нужен доступ к bot, но в context есть bot
                     await generate_paid_photo(
                         user_id,
                         context.bot,
@@ -88,18 +85,14 @@ async def check_payments_job(context: ContextTypes.DEFAULT_TYPE):
             logger.error(f"Ошибка при проверке заказа {label}: {e}")
 
 # ---------- Функция для обработки уведомления от ЮMoney (вебхук) ----------
-async def handle_yoomoney_notification(data: dict, bot: Bot, db: Database):
+async def handle_yoomoney_notification(data: dict, bot: Bot, db):
     """
     Вызывается из вебхук-сервера при получении уведомления от ЮMoney.
-    data: словарь с параметрами POST-запроса от ЮMoney.
     """
     logger.info(f"Обработка уведомления от ЮMoney: {data}")
 
     label = data.get('label')
-    operation_id = data.get('operation_id')
-    amount = data.get('amount')
     status = data.get('status')  # обычно 'success'
-    # Можно проверить сумму и получателя (receiver) при необходимости
 
     if not label or status != 'success':
         logger.warning(f"Уведомление не является успешным или нет label: {data}")
@@ -115,40 +108,31 @@ async def handle_yoomoney_notification(data: dict, bot: Bot, db: Database):
         logger.error(f"Не удалось извлечь user_id из label: {label}")
         return
 
-    # Запускаем генерацию фото
-    # В отличие от фоновой задачи, здесь нет context, поэтому передаём только bot и db
-    await generate_paid_photo(
-        user_id,
-        bot,
-        db,
-        context=None  # user_data недоступен
-    )
+    # Запускаем генерацию фото (context отсутствует)
+    await generate_paid_photo(user_id, bot, db, context=None)
 
 # ---------- Генерация фото после успешной оплаты ----------
-async def generate_paid_photo(user_id: int, bot: Bot, db: Database, context=None):
+async def generate_paid_photo(user_id: int, bot: Bot, db, context=None):
     """
     Генерирует фото после подтверждения оплаты.
     Если context передан, пытается взять стиль из user_data,
-    иначе (при вебхуке) берёт стиль из БД (поле selected_style).
+    иначе (при вебхуке) берёт стиль из БД.
     """
     # 1. Получаем выбранный стиль
     style_key = None
     if context and 'selected_style' in context.user_data:
-        # Если есть context (фоновый опрос), берём из памяти
         style_key = context.user_data['selected_style']
     else:
-        # Если нет context (вебхук), берём из БД
         style_key = await db.get_user_selected_style(user_id)
 
     if not style_key:
-        # Если стиль не выбран – просим выбрать заново
         await bot.send_message(
             chat_id=user_id,
             text="❌ Стиль не был выбран. Пожалуйста, сначала выберите стиль через меню «🖼️ Стили»."
         )
-        # Показываем меню стилей (импортируем функцию)
+        # Показываем меню стилей
         from handlers.styles import show_styles_menu
-        await show_styles_menu(user_id, context)  # context может быть None – адаптируйте
+        await show_styles_menu(user_id, context)
         return
 
     style = Config.STYLES.get(style_key)

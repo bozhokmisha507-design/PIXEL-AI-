@@ -1,12 +1,16 @@
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes, CommandHandler, CallbackQueryHandler
+from database.db import get_db
 from handlers.menu import get_main_menu_keyboard
+import logging
+
+logger = logging.getLogger(__name__)
 
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message or not update.effective_user:
         return
 
-    db = context.bot_data['db']
+    db = await get_db()
     user = update.effective_user
     await db.get_or_create_user(user.id, user.username, user.first_name)
 
@@ -30,11 +34,11 @@ async def gender_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     await query.answer()
     gender = query.data.replace("set_gender_", "")
-    
+
     if update.effective_user is None:
         return
     user_id = update.effective_user.id
-    db = context.bot_data['db']
+    db = await get_db()
     await db.set_user_gender(user_id, gender)
 
     await query.edit_message_text(
@@ -82,7 +86,7 @@ async def handle_main_menu_buttons(update: Update, context: ContextTypes.DEFAULT
     if not update.message or not update.effective_user:
         return
     text = update.message.text
-    
+
     if text == "📤 Загрузить фото":
         from handlers.upload import upload_command
         await upload_command(update, context)
@@ -100,5 +104,6 @@ async def handle_main_menu_buttons(update: Update, context: ContextTypes.DEFAULT
     elif text == "🏠 Главное меню":
         await start_command(update, context)
 
+# ===== Экспортируемые обработчики =====
 start_handler = CommandHandler("start", start_command)
 help_handler = CommandHandler("help", help_command)

@@ -1,321 +1,126 @@
+import os
 import logging
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import (
-    ContextTypes, CommandHandler, MessageHandler,
-    CallbackQueryHandler, ConversationHandler, filters
-)
-from services.storage import StorageService
+from telegram import Update
+from telegram.ext import ContextTypes, ConversationHandler, CommandHandler, MessageHandler, filters, CallbackQueryHandler
 from config import Config
+from database.db import get_db
 from handlers.menu import get_main_menu_keyboard
+import asyncio
 
 logger = logging.getLogger(__name__)
 
-UPLOADING = 1
+# Состояния для ConversationHandler
+PHOTO = 1
 
 async def upload_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not update.message or not update.effective_user:
-        return UPLOADING
-
-    db = context.bot_data['db']
+    """Начинает процесс загрузки фото"""
     user_id = update.effective_user.id
-    await db.update_user_state(user_id, 'uploading')
+    db = await get_db()
+    photo_count = await db.get_user_photo_count(user_id)
 
-    # Инициализация user_data
-    if context.user_data is None:
-        context.user_data = {}
-    context.user_data['uploaded_count'] = 0
-    context.user_data['photo_paths'] = []
-    context.user_data['progress_message_id'] = None
+    if photo_count >= Config.MAX_PHOTOS:
+        await update.message.reply_text(
+            f"⚠️ У вас уже максимальное количество фото ({Config.MAX_PHOTOS}). "
+            "Чтобы загрузить новые, сначала очистите старые через «🗑 Очистить селфи»."
+        )
+        return ConversationHandler.END
 
-    existing_count = await db.get_user_photo_count(user_id)
-
-    text = (
-        f"📸 *Загрузка селфи*\n\n"
-        f"Отправляй мне свои фотографии по одной или несколько сразу.\n\n"
-        f"*Требования к фото:*\n"
-        f"✅ Чёткие, не размытые\n"
-        f"✅ Хорошее освещение☀️\n"
-        f"✅ Лицо видно полностью\n"
-        f"✅ Разные ракурсы\n\n"
-        f"*Количество:*\n"
-        f"• Минимум: {Config.MIN_PHOTOS} фото\n"
-        f"• Рекомендуется: {Config.RECOMMENDED_PHOTOS} фото\n"
-        f"• Максимум: {Config.MAX_PHOTOS} фото\n"
+    await update.message.reply_text(
+        f"📸 Отправь мне свои селфи (от {Config.MIN_PHOTOS} до {Config.MAX_PHOTOS} фото).\n\n"
+        f"Сейчас загружено: {photo_count}\n"
+        f"Рекомендуется {Config.RECOMMENDED_PHOTOS} фото для лучшего результата.\n\n"
+        "✅ Когда закончишь, нажми /done\n"
+        "❌ Для отмены нажми /cancel"
     )
-
-    if existing_count > 0:
-        text += f"\n⚠️ У тебя уже загружено {existing_count} фото. Новые будут добавлены.\n"
-
-    text += "\n📤 *Начинай отправлять фото!*"
-
-    # ⚠️ Убрали inline-кнопки из первого сообщения
-    sent = await update.message.reply_text(
-        text,
-        parse_mode='Markdown'
-    )
-    # Сохраняем ID этого сообщения, чтобы потом его можно было удалить (опционально)
-    if context.user_data is not None:
-        context.user_data['progress_message_id'] = sent.message_id
-
-    return UPLOADING
+    return PHOTO
 
 async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Обрабатывает полученное фото"""
     if not update.message or not update.effective_user:
-        return UPLOADING
+        return PHOTO
 
     user_id = update.effective_user.id
-    logger.info(f"Получено фото от пользователя {user_id}")
+    db = await get_db()
+    photo_count = await db.get_user_photo_count(user_id)
 
-    db = context.bot_data['db']
-    photo = update.message.photo[-1]
-    file_id = photo.file_id
-
-    current_count = await db.get_user_photo_count(user_id)
-
-    if current_count >= Config.MAX_PHOTOS:
+    if photo_count >= Config.MAX_PHOTOS:
         await update.message.reply_text(
-            f"⚠️ Достигнут максимум ({Config.MAX_PHOTOS} фото). "
-            f"Нажми «Готово» для продолжения."
+            f"❌ Достигнут лимит ({Config.MAX_PHOTOS} фото). "
+            "Чтобы добавить новые, сначала очисти старые через «🗑 Очистить селфи»."
         )
-        return UPLOADING
-
-    try:
-        bot = update.get_bot()
-        file_path = await StorageService.save_telegram_photo(
-            bot, file_id, user_id, current_count + 1
-        )
-
-        await db.add_photo(user_id, file_id, file_path, "input")
-        current_count += 1
-        logger.info(f"Фото #{current_count} сохранено")
-
-        # Создаём прогресс-бар
-        filled = min(current_count, Config.RECOMMENDED_PHOTOS)
-        empty = max(0, Config.RECOMMENDED_PHOTOS - current_count)
-        progress_bar = "🟩" * filled + "⬜" * empty
-
-        if current_count >= Config.MIN_PHOTOS:
-            status_emoji = "✅"
-            status_text = "Можно переходить к генерации!"
-        else:
-            status_emoji = "📸"
-            remaining = Config.MIN_PHOTOS - current_count
-            status_text = f"Нужно ещё минимум {remaining} фото"
-
-        # В прогресс-сообщении добавляем все три кнопки: Готово, Удалить все селфи, Отмена
-        keyboard = [
-            [InlineKeyboardButton("✅ Готово", callback_data="done_uploading")],
-            [InlineKeyboardButton("🗑 Удалить все селфи", callback_data="clear_photos")],
-            [InlineKeyboardButton("❌ Отмена", callback_data="cancel_upload")]
-        ]
-
-        new_text = (
-            f"{status_emoji} Фото #{current_count} загружено!\n\n"
-            f"Прогресс: {current_count}/{Config.RECOMMENDED_PHOTOS}\n"
-            f"[{progress_bar}]\n\n"
-            f"{status_text}"
-        )
-
-        # Удаляем предыдущее сообщение с прогрессом (первое или предыдущее)
-        progress_id = context.user_data.get('progress_message_id') if context.user_data else None
-        if progress_id:
-            try:
-                await context.bot.delete_message(chat_id=user_id, message_id=progress_id)
-            except Exception as e:
-                logger.warning(f"Не удалось удалить предыдущее сообщение: {e}")
-
-        # Отправляем новое сообщение с прогрессом и кнопками
-        sent = await context.bot.send_message(
-            chat_id=user_id,
-            text=new_text,
-            parse_mode='Markdown',
-            reply_markup=InlineKeyboardMarkup(keyboard)
-        )
-        if context.user_data is not None:
-            context.user_data['progress_message_id'] = sent.message_id
-
-    except Exception as e:
-        logger.error(f"Ошибка при загрузке фото: {e}")
-        await update.message.reply_text(f"❌ Ошибка: {str(e)}")
-
-    return UPLOADING
-
-async def done_uploading_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    if query is None or not update.effective_user:
         return ConversationHandler.END
-    await query.answer()
 
+    # Получаем фото
+    photo = update.message.photo[-1]  # берём самое большое фото
+    file = await context.bot.get_file(photo.file_id)
+
+    # Создаём папку для пользователя, если нет
+    user_dir = os.path.join(Config.UPLOAD_DIR, str(user_id))
+    os.makedirs(user_dir, exist_ok=True)
+
+    # Сохраняем файл
+    file_path = os.path.join(user_dir, f"photo_{photo_count + 1}.jpg")
+    await file.download_to_drive(file_path)
+    logger.info(f"Фото #{photo_count + 1} сохранено в {file_path}")
+
+    # Сохраняем в БД
+    await db.add_photo(user_id, photo.file_id, file_path, "input")
+
+    # Обновляем счётчик
+    new_count = await db.get_user_photo_count(user_id)
+    remaining = Config.MAX_PHOTOS - new_count
+
+    await update.message.reply_text(
+        f"✅ Фото #{new_count} сохранено!\n"
+        f"Загружено: {new_count}/{Config.MAX_PHOTOS}\n"
+        f"Осталось: {remaining}"
+    )
+
+    return PHOTO
+
+async def done_uploading(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Завершает загрузку фото"""
     user_id = update.effective_user.id
-    db = context.bot_data['db']
-    count = await db.get_user_photo_count(user_id)
+    db = await get_db()
+    photo_count = await db.get_user_photo_count(user_id)
 
-    if count < Config.MIN_PHOTOS:
-        await query.edit_message_text(
-            f"⚠️ Загружено только {count} фото.\n"
-            f"Минимум нужно {Config.MIN_PHOTOS}.\n\n"
-            f"Продолжай отправлять фотографии!"
+    if photo_count < Config.MIN_PHOTOS:
+        await update.message.reply_text(
+            f"⚠️ Нужно минимум {Config.MIN_PHOTOS} фото. Сейчас: {photo_count}\n\n"
+            "Продолжай загружать."
         )
-        return UPLOADING
+        return PHOTO
 
-    try:
-        await query.delete_message()
-    except Exception as e:
-        logger.warning(f"Не удалось удалить сообщение: {e}")
-
-    await db.update_user_state(user_id, 'ready_to_generate')
-
-    # Сразу показываем меню стилей
-    from handlers.styles import show_styles_menu
-    await show_styles_menu(user_id, context)
-
-    # Возвращаем главное меню с Reply-кнопками
-    await context.bot.send_message(
-        chat_id=user_id,
-        text="👇 *Главное меню*:",
-        parse_mode='Markdown',
+    await update.message.reply_text(
+        f"✅ Загрузка завершена! У тебя {photo_count} фото.\n"
+        "Теперь можешь выбрать стиль через «🖼️ Стили».",
         reply_markup=get_main_menu_keyboard()
     )
-
     return ConversationHandler.END
 
-async def cancel_upload_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    if query is None or not update.effective_user:
-        return ConversationHandler.END
-    await query.answer()
-
-    user_id = update.effective_user.id
-    db = context.bot_data['db']
-    await db.update_user_state(user_id, 'idle')
-
-    try:
-        await query.delete_message()
-    except Exception:
-        pass
-
-    await context.bot.send_message(
-        chat_id=user_id,
-        text="❌ *Загрузка отменена*\n\nИспользуй /upload чтобы начать заново.",
-        parse_mode='Markdown',
+async def cancel_upload(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Отменяет загрузку"""
+    await update.message.reply_text(
+        "❌ Загрузка отменена.",
         reply_markup=get_main_menu_keyboard()
     )
-
     return ConversationHandler.END
 
-async def clear_photos_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    if query is None or not update.effective_user:
-        return UPLOADING
-    await query.answer()
-
-    user_id = update.effective_user.id
-    db = context.bot_data['db']
-
-    await db.clear_user_photos(user_id)
-    StorageService.cleanup_user_uploads(user_id)
-
-    new_text = "🗑 *Все фото удалены*\n\nОтправляй новые фотографии!"
-    progress_id = context.user_data.get('progress_message_id') if context.user_data else None
-
-    if progress_id:
-        try:
-            await context.bot.edit_message_text(
-                chat_id=user_id,
-                message_id=progress_id,
-                text=new_text,
-                parse_mode='Markdown'
-            )
-        except Exception as e:
-            logger.warning(f"Не удалось отредактировать сообщение: {e}")
-            # Если не получилось отредактировать, отправляем новое и сохраняем его ID
-            sent = await context.bot.send_message(
-                chat_id=user_id,
-                text=new_text,
-                parse_mode='Markdown'
-            )
-            if context.user_data is not None:
-                context.user_data['progress_message_id'] = sent.message_id
-    else:
-        # Если нет сообщения с прогрессом, просто отправляем новое
-        sent = await context.bot.send_message(
-            chat_id=user_id,
-            text=new_text,
-            parse_mode='Markdown'
-        )
-        if context.user_data is not None:
-            context.user_data['progress_message_id'] = sent.message_id
-
-    return UPLOADING
-
-async def continue_upload_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    if query is None or not update.effective_user:
-        return UPLOADING
-    await query.answer()
-
-    user_id = update.effective_user.id
-    db = context.bot_data['db']
-    count = await db.get_user_photo_count(user_id)
-
-    try:
-        await query.delete_message()
-    except Exception:
-        pass
-
-    filled = min(count, Config.RECOMMENDED_PHOTOS)
-    empty = max(0, Config.RECOMMENDED_PHOTOS - count)
-    progress_bar = "🟩" * filled + "⬜" * empty
-
-    if count >= Config.MIN_PHOTOS:
-        status_emoji = "✅"
-        status_text = "Можно переходить к генерации!"
-    else:
-        status_emoji = "📸"
-        remaining = Config.MIN_PHOTOS - count
-        status_text = f"Нужно ещё минимум {remaining} фото"
-
-    keyboard = [
-        [InlineKeyboardButton("✅ Готово", callback_data="done_uploading")],
-        [InlineKeyboardButton("🗑 Удалить все селфи", callback_data="clear_photos")],
-        [InlineKeyboardButton("❌ Отмена", callback_data="cancel_upload")]
-    ]
-
-    new_text = (
-        f"{status_emoji} *Продолжай отправлять фото!*\n\n"
-        f"Прогресс: {count}/{Config.RECOMMENDED_PHOTOS}\n"
-        f"[{progress_bar}]\n\n"
-        f"{status_text}"
-    )
-
-    sent = await context.bot.send_message(
-        chat_id=user_id,
-        text=new_text,
-        parse_mode='Markdown',
-        reply_markup=InlineKeyboardMarkup(keyboard)
-    )
-    if context.user_data is not None:
-        context.user_data['progress_message_id'] = sent.message_id
-
-    return UPLOADING
-
+# ConversationHandler
 upload_conversation = ConversationHandler(
     entry_points=[
         CommandHandler("upload", upload_command),
-        MessageHandler(filters.Text(["📤 Загрузить фото"]), upload_command),
+        MessageHandler(filters.Text("📤 Загрузить фото"), upload_command)
     ],
     states={
-        UPLOADING: [
+        PHOTO: [
             MessageHandler(filters.PHOTO, handle_photo),
-            CallbackQueryHandler(done_uploading_callback, pattern="^done_uploading$"),
-            CallbackQueryHandler(clear_photos_callback, pattern="^clear_photos$"),
-            CallbackQueryHandler(cancel_upload_callback, pattern="^cancel_upload$"),
-            CallbackQueryHandler(continue_upload_callback, pattern="^continue_upload$"),
+            CommandHandler("done", done_uploading),
+            CommandHandler("cancel", cancel_upload),
         ]
     },
-    fallbacks=[
-        CallbackQueryHandler(cancel_upload_callback, pattern="^cancel_upload$"),
-    ],
+    fallbacks=[CommandHandler("cancel", cancel_upload)],
+    per_message=False,
     per_user=True,
-    per_chat=True,
+    per_chat=True
 )

@@ -1,8 +1,0 @@
-from yoomoney import Authorize
-
-Authorize(
-    client_id="FCF7497D815648E3A278C62FA73A50218565CA5FE58861E63AAF0A10593679C5",
-    redirect_uri="https://t.me/bma3_bot",
-    client_secret="9EA0F3B985AE7C5036B451A4893D98D9FB727ABD274A11DB28E9A180C86151480F71D20DE233F42F29B774CFBE9D963291BE98CE73389C86E6227CF12DC398F3",
-    scope=["account-info", "operation-history", "incoming-transfers"]
-)

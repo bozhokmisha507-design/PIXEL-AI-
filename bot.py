@@ -34,6 +34,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 async def post_init(application: Application) -> None:
+    """Инициализация после создания приложения."""
     db = Database()
     await db.init()
     application.bot_data['db'] = db
@@ -45,7 +46,12 @@ async def post_init(application: Application) -> None:
     except Exception as e:
         logger.warning(f"Не удалось получить информацию о боте: {e}")
 
+    # Запускаем веб-сервер после того, как БД готова
+    asyncio.create_task(start_webhook_server(application.bot, application.bot_data['db']))
+    logger.info("🌐 Веб-сервер запускается как фоновая задача")
+
 async def main_async():
+    """Основная асинхронная функция запуска бота."""
     if not Config.BOT_TOKEN:
         logger.error("❌ BOT_TOKEN не найден! Проверьте .env файл")
         return
@@ -99,10 +105,7 @@ async def main_async():
     
     logger.info("🚀 Бот запускается...")
     
-    # Запускаем веб-сервер как фоновую задачу
-    asyncio.create_task(start_webhook_server(application.bot, application.bot_data['db']))
-    
-    # Запускаем polling (он сам работает в текущем цикле)
+    # Запускаем polling (веб-сервер уже запущен в post_init)
     await application.run_polling(allowed_updates=Update.ALL_TYPES)
 
 if __name__ == "__main__":

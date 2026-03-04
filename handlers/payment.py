@@ -25,8 +25,7 @@ async def buy_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     db = await get_db()
     await db.create_order(user_id, label, amount)
 
-    # Формируем ссылку на оплату с notification_url
-    notification_url = Config.YOOMONEY_NOTIFICATION_URL  # должна быть задана в config.py
+    
 
     quickpay = Quickpay(
         receiver=Config.YOOMONEY_WALLET,
@@ -35,7 +34,7 @@ async def buy_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         paymentType="AC",  # оплата картой
         sum=amount,
         label=label,
-        notification_url=notification_url
+        
     )
     payment_url = quickpay.redirected_url
 

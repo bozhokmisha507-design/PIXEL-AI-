@@ -69,7 +69,7 @@ async def style_selected_callback(update: Update, context: ContextTypes.DEFAULT_
     query = update.callback_query
     if query is None or query.data is None:
         return
-    await query.answer()
+    logger.info(f"🔥 style_selected_callback вызван с data: {query.data}")
 
     style_key = query.data.replace("select_style_", "")
     style = Config.STYLES.get(style_key)

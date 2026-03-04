@@ -39,76 +39,83 @@ async def post_init(application: Application) -> None:
     await db.init()
     application.bot_data['db'] = db
     logger.info("✅ База данных инициализирована")
-    
+
     try:
         bot_user = await application.bot.get_me()
         logger.info(f"🤖 Бот: @{bot_user.username}")
     except Exception as e:
         logger.warning(f"Не удалось получить информацию о боте: {e}")
 
-    # Запускаем веб-сервер после того, как БД готова
+    # Запускаем веб-сервер как фоновую задачу
     asyncio.create_task(start_webhook_server(application.bot, application.bot_data['db']))
-    logger.info("🌐 Веб-сервер запускается как фоновая задача")
+    logger.info("🌐 Веб-сервер запущен как фоновая задача")
 
 async def main_async():
-    """Основная асинхронная функция запуска бота."""
+    """Основная асинхронная функция."""
     if not Config.BOT_TOKEN:
         logger.error("❌ BOT_TOKEN не найден! Проверьте .env файл")
         return
-    
+
     Config.ensure_dirs()
     logger.info("📁 Папки созданы/проверены")
-    
+
     application = Application.builder()\
         .token(Config.BOT_TOKEN)\
         .post_init(post_init)\
         .build()
-    
-    # Команды
+
+    # Регистрация обработчиков
     application.add_handler(start_handler)
     application.add_handler(help_handler)
     application.add_handler(menu_handler)
     application.add_handler(styles_handler)
-    
-    # ConversationHandler для загрузки фото
     application.add_handler(upload_conversation)
-    
-    # Inline-обработчики для стилей
     application.add_handler(show_styles_cb)
     application.add_handler(style_selected_cb)
-    
-    # Обработчик выбора пола
     application.add_handler(CallbackQueryHandler(gender_callback, pattern="^set_gender_"))
-    
-    # Команда покупки
     application.add_handler(buy_handler)
-    
-    # Кнопки главного меню
     application.add_handler(MessageHandler(
         filters.Text([
-            "📤 Загрузить фото", 
-            "💳 Купить генерацию", 
-            "🖼️ Стили", 
+            "📤 Загрузить фото",
+            "💳 Купить генерацию",
+            "🖼️ Стили",
             "❓ Помощь",
-            "🗑 Очистить селфи", 
+            "🗑 Очистить селфи",
             "🏠 Главное меню"
-        ]), 
+        ]),
         handle_main_menu_buttons
     ))
-    
-    # Обработчик очистки
     application.add_handler(clean_photos_handler)
-    
-    # Фоновая задача проверки платежей (каждые 15 секунд)
+
+    # Фоновая задача проверки платежей
     job_queue = application.job_queue
     job_queue.run_repeating(check_payments_job, interval=15, first=10)
-    
+
     logger.info("🚀 Бот запускается...")
-    
-    # Запускаем polling (веб-сервер уже запущен в post_init)
-    await application.run_polling(allowed_updates=Update.ALL_TYPES)
+
+    # Инициализируем приложение
+    await application.initialize()
+    await application.start()
+
+    # Запускаем polling в фоне
+    await application.updater.start_polling()
+
+    # Бесконечно ждём, пока бот работает (веб-сервер уже запущен)
+    try:
+        while True:
+            await asyncio.sleep(3600)
+    except asyncio.CancelledError:
+        logger.info("Получен сигнал завершения")
+    finally:
+        # Корректно останавливаем всё
+        await application.updater.stop()
+        await application.stop()
+        await application.shutdown()
 
 if __name__ == "__main__":
     # Получаем текущий цикл событий (уже запущен хостингом)
     loop = asyncio.get_event_loop()
-    loop.run_until_complete(main_async())
+    try:
+        loop.run_until_complete(main_async())
+    except KeyboardInterrupt:
+        logger.info("Бот остановлен вручную")

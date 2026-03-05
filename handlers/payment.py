@@ -32,7 +32,7 @@ async def buy_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         paymentType="AC",
         sum=amount,
         label=label,
-        success_url="https://t.me/bma3_bot?start=payment_ok"   # <-- добавлено
+        successURL="https://t.me/bma3_bot?start=payment_ok"
     )
     payment_url = quickpay.redirected_url
 

@@ -9,6 +9,7 @@ from config import Config
 from handlers.menu import get_main_menu_keyboard
 from services.aitunnel_service import AITunnelService
 from database.db import get_db
+from utils.helpers import send_photo_or_fallback  # <-- новый импорт
 
 logger = logging.getLogger(__name__)
 aitunnel_service = AITunnelService()
@@ -94,14 +95,13 @@ async def handle_yoomoney_notification(data: dict, bot: Bot, db):
 async def generate_paid_photo(user_id: int, bot: Bot, db, context=None, label=None):
     """Генерирует фото после подтверждения оплаты. Гарантирует, что заказ будет обработан только один раз."""
     try:
-        # Если передан label, пытаемся атомарно пометить заказ как обработанный
         if label:
             if not await db.try_mark_order_processed(label):
-                logger.info(f"Заказ {label} уже обработан, пропускаем генерацию")
+                logger.info(f"Заказ {label} уже обработан, пропускаем генерацию для user {user_id}")
                 return
-            logger.info(f"Заказ {label} зарезервирован для генерации")
+            logger.info(f"Заказ {label} зарезервирован для генерации для user {user_id}")
 
-        # --- Получение стиля (безопасно для context=None) ---
+        # --- Получение стиля ---
         style_key = None
         if context is not None:
             if hasattr(context, 'user_data') and context.user_data:
@@ -152,17 +152,7 @@ async def generate_paid_photo(user_id: int, bot: Bot, db, context=None, label=No
                 text=f"✅ Оплата получена! Ваше фото в стиле {style['name']}:"
             )
             for image_data in results:
-                try:
-                    if image_data.startswith('data:image'):
-                        base64_str = re.sub('^data:image/.+;base64,', '', image_data)
-                        image_bytes = base64.b64decode(base64_str)
-                        await bot.send_photo(chat_id=user_id, photo=image_bytes)
-                    elif image_data.startswith('http'):
-                        await bot.send_photo(chat_id=user_id, photo=image_data)
-                    else:
-                        await bot.send_message(chat_id=user_id, text=image_data)
-                except Exception as e:
-                    logger.error(f"Ошибка отправки фото: {e}")
+                await send_photo_or_fallback(bot, user_id, image_data)  # <-- используем утилиту
         else:
             await bot.send_message(
                 chat_id=user_id,

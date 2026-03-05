@@ -14,8 +14,14 @@ PHOTO = 1
 async def upload_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Начинает процесс загрузки фото"""
     user_id = update.effective_user.id
-    db = await get_db()
-    photo_count = await db.get_user_photo_count(user_id)
+
+    # Сначала проверяем кэш в user_data
+    photo_count = context.user_data.get('photo_count')
+    if photo_count is None:
+        # Если нет в кэше, берём из БД
+        db = await get_db()
+        photo_count = await db.get_user_photo_count(user_id)
+        context.user_data['photo_count'] = photo_count
 
     if photo_count >= Config.MAX_PHOTOS:
         await update.message.reply_text(
@@ -47,7 +53,9 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     user_id = update.effective_user.id
     db = await get_db()
-    photo_count = await db.get_user_photo_count(user_id)
+
+    # Используем кэшированное значение, но после добавления обновляем
+    photo_count = context.user_data.get('photo_count', 0)
 
     if photo_count >= Config.MAX_PHOTOS:
         await update.message.reply_text(
@@ -67,13 +75,14 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Сохраняем файл
     file_path = os.path.join(user_dir, f"photo_{photo_count + 1}.jpg")
     await file.download_to_drive(file_path)
-    logger.info(f"Фото #{photo_count + 1} сохранено в {file_path}")
+    logger.info(f"Фото #{photo_count + 1} сохранено в {file_path} (user {user_id})")
 
     # Сохраняем в БД
     await db.add_photo(user_id, photo.file_id, file_path, "input")
 
-    # Обновляем счётчик
+    # Обновляем кэш и БД (в add_photo счётчик уже увеличился, но лучше перечитать)
     new_count = await db.get_user_photo_count(user_id)
+    context.user_data['photo_count'] = new_count
     remaining = Config.MAX_PHOTOS - new_count
 
     await update.message.reply_text(
@@ -88,7 +97,10 @@ async def done_uploading(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Завершает загрузку фото (по кнопке или команде /done)"""
     user_id = update.effective_user.id
     db = await get_db()
-    photo_count = await db.get_user_photo_count(user_id)
+    photo_count = context.user_data.get('photo_count')
+    if photo_count is None:
+        photo_count = await db.get_user_photo_count(user_id)
+        context.user_data['photo_count'] = photo_count
 
     if photo_count < Config.MIN_PHOTOS:
         await update.message.reply_text(

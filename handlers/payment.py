@@ -101,11 +101,12 @@ async def generate_paid_photo(user_id: int, bot: Bot, db, context=None, label=No
                 return
             logger.info(f"Заказ {label} зарезервирован для генерации")
 
-        # --- Получение стиля ---
+        # --- Получение стиля (безопасно для context=None) ---
         style_key = None
-        if context and 'selected_style' in context.user_data:
-            style_key = context.user_data['selected_style']
-        else:
+        if context is not None:
+            if hasattr(context, 'user_data') and context.user_data:
+                style_key = context.user_data.get('selected_style')
+        if style_key is None:
             style_key = await db.get_user_selected_style(user_id)
 
         if not style_key:
@@ -169,8 +170,8 @@ async def generate_paid_photo(user_id: int, bot: Bot, db, context=None, label=No
             )
 
         # Очищаем выбранный стиль из user_data (если есть)
-        if context and 'selected_style' in context.user_data:
-            context.user_data.pop('selected_style')
+        if context is not None and hasattr(context, 'user_data') and context.user_data:
+            context.user_data.pop('selected_style', None)
 
         # Возвращаем главное меню
         await bot.send_message(

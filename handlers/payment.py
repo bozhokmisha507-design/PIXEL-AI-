@@ -2,9 +2,8 @@ import uuid
 import logging
 import base64
 import re
-import os
-from telegram import Update, Bot, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import ContextTypes, CommandHandler, CallbackQueryHandler
+from telegram import Update, Bot
+from telegram.ext import ContextTypes, CommandHandler
 from yoomoney import Quickpay, Client
 from config import Config
 from handlers.menu import get_main_menu_keyboard
@@ -16,7 +15,7 @@ aitunnel_service = AITunnelService()
 
 # ---------- Команда /buy ----------
 async def buy_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Обработчик команды /buy – создаёт ссылку на оплату с уведомлением."""
+    """Обработчик команды /buy – создаёт ссылку на оплату с success_url."""
     user_id = update.effective_user.id
     label = f"order_{user_id}_{uuid.uuid4().hex[:8]}"
     amount = Config.PRICE_PER_GENERATION
@@ -25,16 +24,15 @@ async def buy_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     db = await get_db()
     await db.create_order(user_id, label, amount)
 
-    
-
+    # Формируем ссылку на оплату
     quickpay = Quickpay(
         receiver=Config.YOOMONEY_WALLET,
         quickpay_form="shop",
         targets="Оплата генерации фото в PIXEL AI",
-        paymentType="AC",  # оплата картой
+        paymentType="AC",
         sum=amount,
         label=label,
-        
+        success_url="https://t.me/bma3_bot?start=payment_ok"   # <-- добавлено
     )
     payment_url = quickpay.redirected_url
 
@@ -68,16 +66,13 @@ async def check_payments_job(context: ContextTypes.DEFAULT_TYPE):
             history = client.operation_history(label=label)
             for operation in history.operations:
                 if operation.status == 'success' and operation.label == label:
-                    # Помечаем заказ как обработанный
                     await db.mark_order_processed(label)
                     logger.info(f"Платёж подтверждён (фоновый) для user {user_id}, label {label}")
-
-                    # Запускаем генерацию фото
                     await generate_paid_photo(
                         user_id,
                         context.bot,
                         db,
-                        context  # передаём context для доступа к user_data (опционально)
+                        context
                     )
                     break
         except Exception as e:
@@ -85,39 +80,24 @@ async def check_payments_job(context: ContextTypes.DEFAULT_TYPE):
 
 # ---------- Функция для обработки уведомления от ЮMoney (вебхук) ----------
 async def handle_yoomoney_notification(data: dict, bot: Bot, db):
-    """
-    Вызывается из вебхук-сервера при получении уведомления от ЮMoney.
-    """
+    """Вызывается из вебхук-сервера при получении уведомления от ЮMoney."""
     logger.info(f"Обработка уведомления от ЮMoney: {data}")
-
     label = data.get('label')
-    status = data.get('status')  # обычно 'success'
-
+    status = data.get('status')
     if not label or status != 'success':
         logger.warning(f"Уведомление не является успешным или нет label: {data}")
         return
-
-    # Помечаем заказ как оплаченный
     await db.mark_order_processed(label)
-
-    # Извлекаем user_id из label (формат order_123456_abc)
     try:
         user_id = int(label.split('_')[1])
     except (IndexError, ValueError):
         logger.error(f"Не удалось извлечь user_id из label: {label}")
         return
-
-    # Запускаем генерацию фото (context отсутствует)
     await generate_paid_photo(user_id, bot, db, context=None)
 
 # ---------- Генерация фото после успешной оплаты ----------
 async def generate_paid_photo(user_id: int, bot: Bot, db, context=None):
-    """
-    Генерирует фото после подтверждения оплаты.
-    Если context передан, пытается взять стиль из user_data,
-    иначе (при вебхуке) берёт стиль из БД.
-    """
-    # 1. Получаем выбранный стиль
+    """Генерирует фото после подтверждения оплаты."""
     style_key = None
     if context and 'selected_style' in context.user_data:
         style_key = context.user_data['selected_style']
@@ -129,7 +109,6 @@ async def generate_paid_photo(user_id: int, bot: Bot, db, context=None):
             chat_id=user_id,
             text="❌ Стиль не был выбран. Пожалуйста, сначала выберите стиль через меню «🖼️ Стили»."
         )
-        # Показываем меню стилей
         from handlers.styles import show_styles_menu
         await show_styles_menu(user_id, context)
         return
@@ -142,7 +121,6 @@ async def generate_paid_photo(user_id: int, bot: Bot, db, context=None):
         )
         return
 
-    # 2. Получаем фото пользователя
     photo_paths = await db.get_user_photos(user_id, "input")
     if not photo_paths:
         await bot.send_message(
@@ -151,11 +129,9 @@ async def generate_paid_photo(user_id: int, bot: Bot, db, context=None):
         )
         return
 
-    # 3. Получаем пол
     gender = await db.get_user_gender(user_id)
-
-    # 4. Генерация
     aitunnel = AITunnelService()
+
     try:
         results = await aitunnel.generate_photos(
             user_photo_paths=photo_paths,
@@ -169,7 +145,6 @@ async def generate_paid_photo(user_id: int, bot: Bot, db, context=None):
                 chat_id=user_id,
                 text=f"✅ Оплата получена! Ваше фото в стиле {style['name']}:"
             )
-            # Отправляем фото
             for image_data in results:
                 try:
                     if image_data.startswith('data:image'):
@@ -194,11 +169,9 @@ async def generate_paid_photo(user_id: int, bot: Bot, db, context=None):
             text="❌ Произошла ошибка при генерации. Мы уже работаем над этим."
         )
 
-    # 5. Очищаем сохранённый стиль (если он был в user_data)
     if context and 'selected_style' in context.user_data:
         context.user_data.pop('selected_style')
 
-    # 6. Возвращаем главное меню
     await bot.send_message(
         chat_id=user_id,
         text="👇 *Главное меню*:",
@@ -206,5 +179,5 @@ async def generate_paid_photo(user_id: int, bot: Bot, db, context=None):
         reply_markup=get_main_menu_keyboard()
     )
 
-# ---------- Экспортируемые обработчики ----------
+# ---------- Экспортируемый обработчик ----------
 buy_handler = CommandHandler("buy", buy_command)

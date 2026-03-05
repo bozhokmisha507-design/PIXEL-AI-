@@ -7,6 +7,15 @@ import logging
 logger = logging.getLogger(__name__)
 
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Обработчик команды /start."""
+    # Проверяем, есть ли аргумент payment_ok (возврат после оплаты)
+    if context.args and context.args[0] == "payment_ok":
+        user_id = update.effective_user.id
+        db = await get_db()
+        from handlers.payment import generate_paid_photo
+        await generate_paid_photo(user_id, context.bot, db, context)
+        return
+
     if not update.message or not update.effective_user:
         return
 
@@ -104,6 +113,5 @@ async def handle_main_menu_buttons(update: Update, context: ContextTypes.DEFAULT
     elif text == "🏠 Главное меню":
         await start_command(update, context)
 
-# ===== Экспортируемые обработчики =====
 start_handler = CommandHandler("start", start_command)
 help_handler = CommandHandler("help", help_command)

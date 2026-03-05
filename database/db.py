@@ -1,5 +1,8 @@
 import aiosqlite
+import logging
 from datetime import datetime
+
+logger = logging.getLogger(__name__)
 
 class Database:
     def __init__(self, db_path="bot_database.db"):
@@ -168,21 +171,28 @@ class Database:
             return row[0] if row else None
 
     async def set_user_selected_style(self, user_id: int, style_key: str):
+        """Сохраняет выбранный стиль пользователя."""
+        logger.info(f"📝 Сохраняем стиль {style_key} для user {user_id}")
         async with aiosqlite.connect(self.db_path) as db:
             await db.execute(
                 "UPDATE users SET selected_style = ? WHERE user_id = ?",
                 (style_key, user_id)
             )
             await db.commit()
+        logger.info(f"✅ Стиль сохранён")
 
     async def get_user_selected_style(self, user_id: int) -> str | None:
+        """Возвращает выбранный стиль пользователя."""
+        logger.info(f"🔍 Получаем стиль для user {user_id}")
         async with aiosqlite.connect(self.db_path) as db:
             cursor = await db.execute(
                 "SELECT selected_style FROM users WHERE user_id = ?",
                 (user_id,)
             )
             row = await cursor.fetchone()
-            return row[0] if row else None
+            style = row[0] if row else None
+            logger.info(f"📦 Найден стиль: {style}")
+            return style
 
     # ===== Заказы =====
     async def create_order(self, user_id: int, label: str, amount: float) -> None:

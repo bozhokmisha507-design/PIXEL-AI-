@@ -217,8 +217,17 @@ class Database:
             )
             await db.commit()
 
+    async def try_mark_order_processed(self, label: str) -> bool:
+        """Пытается пометить заказ как обработанный. Возвращает True, если заказ был не обработан и помечен."""
+        async with aiosqlite.connect(self.db_path) as db:
+            cursor = await db.execute(
+                "UPDATE orders SET processed = 1 WHERE label = ? AND processed = 0",
+                (label,)
+            )
+            await db.commit()
+            return cursor.rowcount > 0
+
     async def is_order_processed(self, label: str) -> bool:
-        """Проверяет, обработан ли заказ с указанным label."""
         async with aiosqlite.connect(self.db_path) as db:
             cursor = await db.execute(
                 "SELECT processed FROM orders WHERE label = ?",

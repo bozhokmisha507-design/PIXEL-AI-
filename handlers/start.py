@@ -13,19 +13,8 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         label = context.args[0].replace("payment_", "")
         user_id = update.effective_user.id
         db = await get_db()
-
-        # Проверяем, обработан ли уже этот заказ
-        if await db.is_order_processed(label):
-            await update.message.reply_text(
-                "✅ Фото для этого заказа уже было сгенерировано.",
-                reply_markup=get_main_menu_keyboard()
-            )
-            return
-
-        # Если не обработан – помечаем как обработанный и запускаем генерацию
-        await db.mark_order_processed(label)
         from handlers.payment import generate_paid_photo
-        await generate_paid_photo(user_id, context.bot, db, context)
+        await generate_paid_photo(user_id, context.bot, db, context, label=label)
         return
 
     # Обычный запуск /start

@@ -12,7 +12,7 @@ class Config:
     YOOMONEY_ACCESS_TOKEN = os.getenv("YOOMONEY_ACCESS_TOKEN")
     YOOMONEY_WALLET = os.getenv("YOOMONEY_WALLET", "")
     PRICE_PER_GENERATION = 38
-    
+    YOOMONEY_NOTIFICATION_URL = os.getenv("YOOMONEY_NOTIFICATION_URL", "")
     UPLOAD_DIR = "uploads"
     OUTPUT_DIR = "outputs"
     

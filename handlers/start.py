@@ -8,14 +8,27 @@ logger = logging.getLogger(__name__)
 
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Обработчик команды /start."""
-    # Проверяем, есть ли аргумент payment_ok (возврат после оплаты)
-    if context.args and context.args[0] == "payment_ok":
+    # Проверяем, есть ли аргумент, начинающийся с "payment_"
+    if context.args and context.args[0].startswith("payment_"):
+        label = context.args[0].replace("payment_", "")
         user_id = update.effective_user.id
         db = await get_db()
+
+        # Проверяем, обработан ли уже этот заказ
+        if await db.is_order_processed(label):
+            await update.message.reply_text(
+                "✅ Фото для этого заказа уже было сгенерировано.",
+                reply_markup=get_main_menu_keyboard()
+            )
+            return
+
+        # Если не обработан – помечаем как обработанный и запускаем генерацию
+        await db.mark_order_processed(label)
         from handlers.payment import generate_paid_photo
         await generate_paid_photo(user_id, context.bot, db, context)
         return
 
+    # Обычный запуск /start
     if not update.message or not update.effective_user:
         return
 

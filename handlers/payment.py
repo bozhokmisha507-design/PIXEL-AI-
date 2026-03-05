@@ -15,7 +15,7 @@ aitunnel_service = AITunnelService()
 
 # ---------- Команда /buy ----------
 async def buy_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Обработчик команды /buy – создаёт ссылку на оплату с success_url."""
+    """Обработчик команды /buy – создаёт ссылку на оплату с successURL, содержащим label."""
     user_id = update.effective_user.id
     label = f"order_{user_id}_{uuid.uuid4().hex[:8]}"
     amount = Config.PRICE_PER_GENERATION
@@ -32,7 +32,7 @@ async def buy_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         paymentType="AC",
         sum=amount,
         label=label,
-        successURL="https://t.me/bma3_bot?start=payment_ok"
+        successURL=f"https://t.me/bma3_bot?start=payment_{label}"   # уникальный возврат
     )
     payment_url = quickpay.redirected_url
 
@@ -66,8 +66,11 @@ async def check_payments_job(context: ContextTypes.DEFAULT_TYPE):
             history = client.operation_history(label=label)
             for operation in history.operations:
                 if operation.status == 'success' and operation.label == label:
+                    # Помечаем заказ как обработанный
                     await db.mark_order_processed(label)
                     logger.info(f"Платёж подтверждён (фоновый) для user {user_id}, label {label}")
+
+                    # Запускаем генерацию фото
                     await generate_paid_photo(
                         user_id,
                         context.bot,
@@ -87,6 +90,7 @@ async def handle_yoomoney_notification(data: dict, bot: Bot, db):
     if not label or status != 'success':
         logger.warning(f"Уведомление не является успешным или нет label: {data}")
         return
+    # Помечаем заказ как оплаченный (если ещё не помечен)
     await db.mark_order_processed(label)
     try:
         user_id = int(label.split('_')[1])

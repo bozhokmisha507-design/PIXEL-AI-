@@ -171,7 +171,6 @@ class Database:
             return row[0] if row else None
 
     async def set_user_selected_style(self, user_id: int, style_key: str):
-        """Сохраняет выбранный стиль пользователя."""
         logger.info(f"📝 Сохраняем стиль {style_key} для user {user_id}")
         async with aiosqlite.connect(self.db_path) as db:
             await db.execute(
@@ -182,7 +181,6 @@ class Database:
         logger.info(f"✅ Стиль сохранён")
 
     async def get_user_selected_style(self, user_id: int) -> str | None:
-        """Возвращает выбранный стиль пользователя."""
         logger.info(f"🔍 Получаем стиль для user {user_id}")
         async with aiosqlite.connect(self.db_path) as db:
             cursor = await db.execute(
@@ -218,6 +216,16 @@ class Database:
                 (label,)
             )
             await db.commit()
+
+    async def is_order_processed(self, label: str) -> bool:
+        """Проверяет, обработан ли заказ с указанным label."""
+        async with aiosqlite.connect(self.db_path) as db:
+            cursor = await db.execute(
+                "SELECT processed FROM orders WHERE label = ?",
+                (label,)
+            )
+            row = await cursor.fetchone()
+            return bool(row and row[0])
 
 # ===== Глобальный экземпляр БД =====
 _db_instance = None

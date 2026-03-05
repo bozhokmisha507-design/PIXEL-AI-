@@ -1,11 +1,10 @@
 import os
 import logging
-from telegram import Update
-from telegram.ext import ContextTypes, ConversationHandler, CommandHandler, MessageHandler, filters, CallbackQueryHandler
+from telegram import Update, ReplyKeyboardMarkup, KeyboardButton
+from telegram.ext import ContextTypes, ConversationHandler, CommandHandler, MessageHandler, filters
 from config import Config
 from database.db import get_db
 from handlers.menu import get_main_menu_keyboard
-import asyncio
 
 logger = logging.getLogger(__name__)
 
@@ -25,12 +24,19 @@ async def upload_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return ConversationHandler.END
 
+    # Создаём клавиатуру с кнопками Готово / Отмена
+    keyboard = [
+        [KeyboardButton("✅ Готово")],
+        [KeyboardButton("❌ Отмена")]
+    ]
+    reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
+
     await update.message.reply_text(
         f"📸 Отправь мне свои селфи (от {Config.MIN_PHOTOS} до {Config.MAX_PHOTOS} фото).\n\n"
         f"Сейчас загружено: {photo_count}\n"
         f"Рекомендуется {Config.RECOMMENDED_PHOTOS} фото для лучшего результата.\n\n"
-        "✅ Когда закончишь, нажми /done\n"
-        "❌ Для отмены нажми /cancel"
+        "Когда закончишь, нажми «✅ Готово».",
+        reply_markup=reply_markup
     )
     return PHOTO
 
@@ -79,7 +85,7 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return PHOTO
 
 async def done_uploading(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Завершает загрузку фото"""
+    """Завершает загрузку фото (по кнопке или команде /done)"""
     user_id = update.effective_user.id
     db = await get_db()
     photo_count = await db.get_user_photo_count(user_id)
@@ -99,7 +105,7 @@ async def done_uploading(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return ConversationHandler.END
 
 async def cancel_upload(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Отменяет загрузку"""
+    """Отменяет загрузку (по кнопке или команде /cancel)"""
     await update.message.reply_text(
         "❌ Загрузка отменена.",
         reply_markup=get_main_menu_keyboard()
@@ -115,6 +121,9 @@ upload_conversation = ConversationHandler(
     states={
         PHOTO: [
             MessageHandler(filters.PHOTO, handle_photo),
+            # Обработчики для кнопок и команд
+            MessageHandler(filters.Text("✅ Готово"), done_uploading),
+            MessageHandler(filters.Text("❌ Отмена"), cancel_upload),
             CommandHandler("done", done_uploading),
             CommandHandler("cancel", cancel_upload),
         ]

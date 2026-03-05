@@ -41,26 +41,37 @@ class AITunnelService:
 
         logger.info(f"Генерация фото в стиле {style_key}, промпт: {prompt[:100]}...")
 
-        results = []
         if not user_photo_paths:
-            logger.error("Нет фото пользователя")
+            logger.error("❌ Список фото пользователя пуст")
             return []
 
-        ref_photo_path = user_photo_paths[0]
-        logger.info(f"Используем референс фото: {ref_photo_path}")
+        # Находим первый существующий файл
+        ref_photo_path = None
+        for path in user_photo_paths:
+            if os.path.exists(path):
+                ref_photo_path = path
+                logger.info(f"✅ Используем референс фото: {ref_photo_path}")
+                break
+            else:
+                logger.warning(f"⚠️ Файл не найден: {path}")
+
+        if not ref_photo_path:
+            logger.error("❌ Ни одно из фото пользователя не найдено на диске")
+            return []
 
         try:
             with open(ref_photo_path, "rb") as f:
                 image_data = base64.b64encode(f.read()).decode("utf-8")
                 data_url = f"data:image/jpeg;base64,{image_data}"
-                logger.info(f"Фото закодировано, размер: {len(image_data)} символов")
+                logger.info(f"📸 Фото закодировано, размер: {len(image_data)} символов")
         except Exception as e:
-            logger.error(f"Ошибка кодирования фото: {e}")
+            logger.error(f"❌ Ошибка кодирования фото {ref_photo_path}: {e}")
             return []
 
+        results = []
         for i in range(num_images):
             try:
-                logger.info(f"Отправка запроса к AI Tunnel (Gemini 2.5 Flash Image) для фото #{i+1}")
+                logger.info(f"📤 Отправка запроса к AI Tunnel (Gemini 2.5 Flash Image) для фото #{i+1}")
 
                 async with aiohttp.ClientSession() as session:
                     headers = {
@@ -100,7 +111,7 @@ class AITunnelService:
                     ) as response:
                         if response.status == 200:
                             result = await response.json()
-                            logger.info(f"Ответ от Gemini API получен")
+                            logger.info(f"📩 Ответ от Gemini API получен")
 
                             if 'choices' in result and len(result['choices']) > 0:
                                 message = result['choices'][0].get('message', {})
@@ -110,29 +121,29 @@ class AITunnelService:
                                         if 'image_url' in img and 'url' in img['image_url']:
                                             image_url = img['image_url']['url']
                                             results.append(image_url)
-                                            logger.info(f"Получено изображение: {image_url[:50]}...")
+                                            logger.info(f"🖼️ Получено изображение: {image_url[:50]}...")
 
                                 elif 'content' in message and message['content']:
                                     content = message['content']
                                     if content.startswith('data:image') or len(content) > 1000:
                                         results.append(content)
-                                        logger.info("Получено base64 изображение в content")
+                                        logger.info("📦 Получено base64 изображение в content")
                                     else:
-                                        logger.warning(f"Получен текст вместо изображения: {content[:100]}")
+                                        logger.warning(f"⚠️ Получен текст вместо изображения: {content[:100]}")
                                 else:
-                                    logger.warning(f"Нет изображения в ответе")
+                                    logger.warning("⚠️ Нет изображения в ответе")
                             else:
-                                logger.error(f"Нет choices в ответе")
+                                logger.error("❌ Нет choices в ответе")
                         else:
                             error_text = await response.text()
-                            logger.error(f"Ошибка Gemini API: {response.status}")
+                            logger.error(f"❌ Ошибка Gemini API: {response.status}")
 
             except asyncio.TimeoutError:
-                logger.error(f"Таймаут при генерации фото #{i+1}")
+                logger.error(f"⏰ Таймаут при генерации фото #{i+1}")
             except Exception as e:
-                logger.error(f"Ошибка при генерации фото #{i+1}: {e}", exc_info=True)
+                logger.error(f"❌ Ошибка при генерации фото #{i+1}: {e}", exc_info=True)
 
-        logger.info(f"Генерация завершена, получено {len(results)} фото")
+        logger.info(f"✅ Генерация завершена, получено {len(results)} фото")
         return results
 
     @staticmethod

@@ -77,6 +77,11 @@ class Config:
             "prompt": "fashion lookbook photo of this person, street style outfit, urban background, model pose, professional fashion photography, natural lighting, high quality, 8k, face clearly visible, full body shot",
             "count": 1
         },
+        "mounter": {
+            "name": "👷‍♂️ Рабочий-монтажник",
+            "prompt": "professional photo of {token} as a skilled construction worker or rigger, wearing a yellow or orange hard hat, reflective safety vest, work gloves, and a full-body safety harness with lanyards. The setting is either high up on a towering construction crane with a city view far below, or on a construction site with steel beams and machinery. In one hand, {token} holds a large heavy-duty wrench (size 55) confidently. The image should be photorealistic, high detail, dramatic lighting (golden hour or industrial lighting), shallow depth of field, sharp focus on the face and the tool, 8k, professional photography style, face clearly visible.",
+            "count": 1
+        },
         "yacht": {
             "name": "🛥️ На яхте с лимонадом",
             "prompt": "luxury yacht photo of this person, holding a glass of lemonade, relaxing on deck, ocean background, sunny day, white outfit, sunglasses, vacation lifestyle, professional photography, 8k, face clearly visible",

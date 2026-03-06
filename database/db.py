@@ -1,5 +1,6 @@
 import aiosqlite
 import logging
+import os  # добавлен для проверки существования файлов
 from datetime import datetime
 
 logger = logging.getLogger(__name__)
@@ -103,13 +104,9 @@ class Database:
             return row[0] if row else None
 
     async def get_user_photo_count(self, user_id):
-        async with aiosqlite.connect(self.db_path) as db:
-            cursor = await db.execute(
-                "SELECT COUNT(*) FROM photos WHERE user_id = ? AND photo_type = 'input'",
-                (user_id,)
-            )
-            row = await cursor.fetchone()
-            return row[0] if row else 0
+        """Возвращает количество реально существующих фото на диске."""
+        paths = await self.get_user_photos(user_id, "input")
+        return len(paths)
 
     async def add_photo(self, user_id, file_id, file_path, photo_type="input", style=None):
         async with aiosqlite.connect(self.db_path) as db:
@@ -118,29 +115,46 @@ class Database:
                 "VALUES (?, ?, ?, ?, ?)",
                 (user_id, file_id, file_path, photo_type, style)
             )
-            await db.execute(
-                "UPDATE users SET photo_count = photo_count + 1 WHERE user_id = ?",
-                (user_id,)
-            )
+            # Обновляем счётчик фото в users? Но счётчик теперь динамический,
+            # поэтому можно не обновлять или обновлять для обратной совместимости.
+            # Для надёжности лучше пересчитывать при каждом запросе, как мы и делаем.
             await db.commit()
 
     async def get_user_photos(self, user_id, photo_type="input"):
+        """
+        Возвращает список путей к реально существующим файлам фото пользователя.
+        Записи в БД, которым не соответствуют файлы на диске, игнорируются.
+        """
         async with aiosqlite.connect(self.db_path) as db:
             cursor = await db.execute(
                 "SELECT file_path FROM photos WHERE user_id = ? AND photo_type = ?",
                 (user_id, photo_type)
             )
             rows = await cursor.fetchall()
-            return [row[0] for row in rows]
+            all_paths = [row[0] for row in rows]
+            # Фильтруем только существующие файлы
+            existing_paths = [p for p in all_paths if os.path.exists(p)]
+            if len(existing_paths) != len(all_paths):
+                logger.warning(
+                    f"Для user {user_id} в БД {len(all_paths)} записей, "
+                    f"но только {len(existing_paths)} файлов существуют."
+                )
+            return existing_paths
 
     async def clear_user_photos(self, user_id):
+        """Удаляет все фото пользователя (файлы и записи в БД)."""
+        # Получаем список файлов перед удалением
+        paths = await self.get_user_photos(user_id, "input")
+        for path in paths:
+            try:
+                if os.path.exists(path):
+                    os.remove(path)
+            except Exception as e:
+                logger.error(f"Ошибка удаления файла {path}: {e}")
+        # Удаляем записи из БД
         async with aiosqlite.connect(self.db_path) as db:
             await db.execute(
                 "DELETE FROM photos WHERE user_id = ? AND photo_type = 'input'",
-                (user_id,)
-            )
-            await db.execute(
-                "UPDATE users SET photo_count = 0 WHERE user_id = ?",
                 (user_id,)
             )
             await db.commit()

@@ -14,7 +14,7 @@ async def send_welcome_with_photo(chat_id: int, first_name: str, bot: Bot):
     caption = (
         f"🎨 *Привет, {first_name}!*\n\n"
         f"Добро пожаловать в *AI Фотосессия Бот*! 📸\n\n"
-        f"Вот примеры того, что мы можем создать — 32 разных стилей на основе одного лица:\n\n"
+        f"Вот примеры того, что мы можем создать — 32 разных стиля на основе одного лица:\n\n"
         f"1️⃣ Загрузи свои селфи (2-5 фото)\n"
         f"2️⃣ Выбери стиль\n"
         f"3️⃣ Получи готовую фотосессию!\n\n"
@@ -52,8 +52,8 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     gender = await db.get_user_gender(user_id)
     if gender is None:
         keyboard = [
-            [InlineKeyboardButton("👨 Мужской", callback_data="set_gender_male")],
-            [InlineKeyboardButton("👩 Женский", callback_data="set_gender_female")]
+            [InlineKeyboardButton("🤵🏼‍♂️ Мужской", callback_data="set_gender_male")],
+            [InlineKeyboardButton("🤵🏼‍♀️ Женский", callback_data="set_gender_female")]
         ]
         await update.message.reply_text(
             "Пожалуйста, укажите ваш пол, чтобы мы могли подбирать стили правильно:",

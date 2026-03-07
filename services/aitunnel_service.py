@@ -21,7 +21,7 @@ class AITunnelService:
 
         base_prompt = style["prompt"]
 
-        # Специальная обработка для стиля "голый торс" в зависимости от пола
+        # Специальная обработка для стилей, требующих гендерной адаптации
         if style_key == "bare_chest":
             if gender == 'male':
                 prompt = "professional fitness portrait of this man, showing muscular athletic physique, six-pack abs visible, gym background, dramatic lighting, 8k, face clearly visible"
@@ -29,6 +29,28 @@ class AITunnelService:
                 prompt = "professional fitness portrait of this woman, wearing a sports bra, showing fit feminine physique, toned body, gym background, soft lighting, 8k, face clearly visible, photorealistic"
             else:
                 prompt = base_prompt.replace("{token}", "this person")
+
+        elif style_key == "evening_suit":
+            if gender == 'male':
+                prompt = "elegant evening suit portrait of this man in a classic tuxedo or formal suit, red carpet or luxurious interior background, sophisticated lighting, sharp focus, high-end fashion photography, 8k, photorealistic, face clearly visible, confident pose"
+            elif gender == 'female':
+                prompt = "glamorous evening gown portrait of this woman, wearing a stunning evening dress, high heels, holding a glass of wine, luxurious ballroom or red carpet background, sophisticated lighting, 8k, photorealistic, professional retouching, face clearly visible, elegant pose"
+            else:
+                prompt = base_prompt.replace("{token}", "this person")
+
+        elif style_key == "business":
+            if gender == 'male':
+                prompt = base_prompt.replace("{token}", "this man")
+            elif gender == 'female':
+                # 🔹 ИСПРАВЛЕНО: blazer ➜ jacket (жакет)
+                prompt = (
+                    "professional confident business portrait of this woman, wearing a stylish blue fitted jacket "
+                    "and a pencil skirt or tailored dress, professional makeup with red lips, elegant modern office background, "
+                    "corporate atmosphere, sharp studio lighting, 8k, photorealistic, professional retouching, face clearly visible"
+                )
+            else:
+                prompt = base_prompt.replace("{token}", "this person")
+
         else:
             # Для всех остальных стилей просто подставляем правильное обращение
             if gender == 'male':

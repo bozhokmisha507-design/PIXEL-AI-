@@ -12,16 +12,17 @@ PHOTO = 1
 
 async def upload_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
-    photo_count = context.user_data.get('photo_count')
-    if photo_count is None:
-        db = await get_db()
-        photo_count = await db.get_user_photo_count(user_id)
-        context.user_data['photo_count'] = photo_count
+
+    # Проверяем лимит ДО старта загрузки
+    db = await get_db()
+    photo_count = await db.get_user_photo_count(user_id)
+    context.user_data['photo_count'] = photo_count
 
     if photo_count >= Config.MAX_PHOTOS:
         await update.message.reply_text(
             f"⚠️ У вас уже максимальное количество фото ({Config.MAX_PHOTOS}). "
-            "Чтобы загрузить новые, сначала очистите старые через «🗑 Очистить селфи»."
+            "Чтобы загрузить новые, сначала очистите старые через «🗑 Очистить селфи».",
+            reply_markup=get_main_menu_keyboard()
         )
         return ConversationHandler.END
 
@@ -51,7 +52,8 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if photo_count >= Config.MAX_PHOTOS:
         await update.message.reply_text(
             f"❌ Достигнут лимит ({Config.MAX_PHOTOS} фото). "
-            "Чтобы добавить новые, сначала очисти старые через «🗑 Очистить селфи»."
+            "Чтобы добавить новые, сначала очисти старые через «🗑 Очистить селфи».",
+            reply_markup=get_main_menu_keyboard()
         )
         return ConversationHandler.END
 

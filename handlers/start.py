@@ -7,7 +7,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 # Прямая ссылка на ваш коллаж-пример
-EXAMPLE_IMAGE_URL = "https://i.ibb.co/5hMJLjDV/collage.png"
+EXAMPLE_IMAGE_URL = "https://i.ibb.co/0jpF70N6/812f44c18ad43d9a7c944520a6998044-1cf83d27-0e6b-49f0-a3a0-007ed2cdc503.png"
 
 async def send_welcome_with_photo(chat_id: int, first_name: str, bot: Bot):
     """Отправляет приветственное фото с подписью и главным меню."""

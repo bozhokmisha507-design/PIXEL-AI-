@@ -2,7 +2,7 @@ import uuid
 import logging
 import base64
 import re
-from telegram import Update, Bot
+from telegram import Update, Bot, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes, CommandHandler
 from yoomoney import Quickpay, Client
 from config import Config
@@ -16,7 +16,7 @@ aitunnel_service = AITunnelService()
 
 # ---------- Команда /buy ----------
 async def buy_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Обработчик команды /buy – создаёт ссылку на оплату с successURL, содержащим label."""
+    """Создаёт ссылку на оплату и отправляет её в виде красивой inline-кнопки."""
     user_id = update.effective_user.id
     label = f"order_{user_id}_{uuid.uuid4().hex[:8]}"
     amount = Config.PRICE_PER_GENERATION
@@ -43,12 +43,14 @@ async def buy_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
+    # Создаём красивую inline-кнопку вместо длинной ссылки
+    keyboard = [[InlineKeyboardButton("💳 Оплатить 38₽", url=payment_url)]]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+
     await update.message.reply_text(
         f"✨ Стоимость генерации: {amount} руб.\n\n"
-        f"Ссылка для оплаты:\n{payment_url}\n\n"
-        "После успешной оплаты фото придёт автоматически (обычно в течение минуты).",
-        disable_web_page_preview=True,
-        reply_markup=get_main_menu_keyboard()
+        "👇 Нажми кнопку ниже для оплаты:",
+        reply_markup=reply_markup
     )
 
 # ---------- Фоновая проверка платежей ----------
@@ -101,22 +103,15 @@ async def handle_yoomoney_notification(data: dict, bot: Bot, db):
 
 # ---------- Генерация фото ----------
 async def generate_paid_photo(user_id: int, bot: Bot, db, context=None, label=None):
-    """Генерирует фото после подтверждения оплаты. Гарантирует, что заказ будет обработан только один раз."""
+    """Генерирует фото после подтверждения оплаты."""
     try:
-        # Если передан label, пытаемся атомарно пометить заказ как обработанный
         if label:
             if not await db.try_mark_order_processed(label):
                 logger.info(f"Заказ {label} уже обработан, пропускаем генерацию для user {user_id}")
                 return
             logger.info(f"Заказ {label} зарезервирован для генерации для user {user_id}")
 
-        # --- Получение стиля (безопасно для context=None) ---
-        style_key = None
-        if context is not None:
-            if hasattr(context, 'user_data') and context.user_data:
-                style_key = context.user_data.get('selected_style')
-        if style_key is None:
-            style_key = await db.get_user_selected_style(user_id)
+        style_key = await db.get_user_selected_style(user_id)
 
         if not style_key:
             await bot.send_message(
@@ -135,7 +130,6 @@ async def generate_paid_photo(user_id: int, bot: Bot, db, context=None, label=No
             )
             return
 
-        # --- Получение фото ---
         photo_paths = await db.get_user_photos(user_id, "input")
         if not photo_paths:
             await bot.send_message(
@@ -147,7 +141,6 @@ async def generate_paid_photo(user_id: int, bot: Bot, db, context=None, label=No
         gender = await db.get_user_gender(user_id)
         aitunnel = AITunnelService()
 
-        # Генерация
         results = await aitunnel.generate_photos(
             user_photo_paths=photo_paths,
             style_key=style_key,
@@ -168,11 +161,9 @@ async def generate_paid_photo(user_id: int, bot: Bot, db, context=None, label=No
                 text="❌ Не удалось сгенерировать фото. Попробуйте позже."
             )
 
-        # Очищаем выбранный стиль из user_data (если есть)
-        if context is not None and hasattr(context, 'user_data') and context.user_data:
-            context.user_data.pop('selected_style', None)
+        if context and 'selected_style' in context.user_data:
+            context.user_data.pop('selected_style')
 
-        # Возвращаем главное меню
         await bot.send_message(
             chat_id=user_id,
             text="👇 *Главное меню*:",

@@ -11,7 +11,7 @@ class Config:
     # ЮMoney
     YOOMONEY_ACCESS_TOKEN = os.getenv("YOOMONEY_ACCESS_TOKEN")
     YOOMONEY_WALLET = os.getenv("YOOMONEY_WALLET", "")
-    PRICE_PER_GENERATION = 38
+    PRICE_PER_GENERATION = 1
 
     # Telegram Payments (на будущее)
     PAYMENT_PROVIDER_TOKEN = os.getenv("PAYMENT_PROVIDER_TOKEN", "")

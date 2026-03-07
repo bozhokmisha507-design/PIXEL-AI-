@@ -6,28 +6,6 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-# Прямая ссылка на ваш коллаж-пример
-EXAMPLE_IMAGE_URL = "https://i.ibb.co/0jpF70N6/812f44c18ad43d9a7c944520a6998044-1cf83d27-0e6b-49f0-a3a0-007ed2cdc503.png"
-
-async def send_welcome_with_photo(chat_id: int, first_name: str, bot: Bot):
-    """Отправляет приветственное фото с подписью и главным меню."""
-    caption = (
-        f"🎨 *Привет, {first_name}!*\n\n"
-        f"Добро пожаловать в *AI Фотосессия Бот*! 📸\n\n"
-        f"Вот примеры того, что мы можем создать — 32 разных стиля на основе одного лица:\n\n"
-        f"1️⃣ Загрузи свои селфи (2-5 фото)\n"
-        f"2️⃣ Выбери стиль\n"
-        f"3️⃣ Получи готовую фотосессию!\n\n"
-        f"👇 Жми на кнопки ниже и пробуй!"
-    )
-    await bot.send_photo(
-        chat_id=chat_id,
-        photo=EXAMPLE_IMAGE_URL,
-        caption=caption,
-        parse_mode='Markdown',
-        reply_markup=get_main_menu_keyboard()
-    )
-
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Обработчик команды /start."""
     # Проверяем, есть ли аргумент, начинающийся с "payment_"
@@ -52,8 +30,8 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     gender = await db.get_user_gender(user_id)
     if gender is None:
         keyboard = [
-            [InlineKeyboardButton("🤵🏼‍♂️ Мужской", callback_data="set_gender_male")],
-            [InlineKeyboardButton("🤵🏼‍♀️ Женский", callback_data="set_gender_female")]
+            [InlineKeyboardButton("👨 Мужской", callback_data="set_gender_male")],
+            [InlineKeyboardButton("👩 Женский", callback_data="set_gender_female")]
         ]
         await update.message.reply_text(
             "Пожалуйста, укажите ваш пол, чтобы мы могли подбирать стили правильно:",
@@ -61,8 +39,25 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
-    # Если пол уже выбран, отправляем приветствие с фото
-    await send_welcome_with_photo(update.effective_chat.id, first_name, context.bot)
+    # Если пол уже выбран, отправляем приветствие (только текст)
+    await send_welcome_message(update.effective_chat.id, first_name, context.bot)
+
+async def send_welcome_message(chat_id: int, first_name: str, bot: Bot):
+    """Отправляет приветственное текстовое сообщение и главное меню."""
+    welcome_text = (
+        f"🎨 *Привет, {first_name}!*\n\n"
+        f"Добро пожаловать в *AI Фотосессия Бот*! 📸\n\n"
+        f"1️⃣ Загрузи свои селфи (2-5 фото)\n"
+        f"2️⃣ Выбери стиль\n"
+        f"3️⃣ Получи готовую фотосессию!\n\n"
+        f"👇 Жми на кнопки ниже и пробуй!"
+    )
+    await bot.send_message(
+        chat_id=chat_id,
+        text=welcome_text,
+        parse_mode='Markdown',
+        reply_markup=get_main_menu_keyboard()
+    )
 
 async def gender_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -77,8 +72,8 @@ async def gender_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     db = await get_db()
     await db.set_user_gender(user_id, gender)
 
-    # После сохранения пола отправляем приветствие с фото
-    await send_welcome_with_photo(query.message.chat.id, update.effective_user.first_name, context.bot)
+    # После сохранения пола отправляем приветствие (только текст)
+    await send_welcome_message(query.message.chat.id, update.effective_user.first_name, context.bot)
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message:

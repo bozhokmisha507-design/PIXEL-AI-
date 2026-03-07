@@ -8,17 +8,12 @@ from handlers.menu import get_main_menu_keyboard
 
 logger = logging.getLogger(__name__)
 
-# Состояния для ConversationHandler
 PHOTO = 1
 
 async def upload_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Начинает процесс загрузки фото"""
     user_id = update.effective_user.id
-
-    # Сначала проверяем кэш в user_data
     photo_count = context.user_data.get('photo_count')
     if photo_count is None:
-        # Если нет в кэше, берём из БД
         db = await get_db()
         photo_count = await db.get_user_photo_count(user_id)
         context.user_data['photo_count'] = photo_count
@@ -30,7 +25,6 @@ async def upload_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return ConversationHandler.END
 
-    # Создаём клавиатуру с кнопками Готово / Отмена
     keyboard = [
         [KeyboardButton("✅ Готово")],
         [KeyboardButton("❌ Отмена")]
@@ -47,14 +41,11 @@ async def upload_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return PHOTO
 
 async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Обрабатывает полученное фото"""
     if not update.message or not update.effective_user:
         return PHOTO
 
     user_id = update.effective_user.id
     db = await get_db()
-
-    # Используем кэшированное значение, но после добавления обновляем
     photo_count = context.user_data.get('photo_count', 0)
 
     if photo_count >= Config.MAX_PHOTOS:
@@ -64,23 +55,18 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return ConversationHandler.END
 
-    # Получаем фото
-    photo = update.message.photo[-1]  # берём самое большое фото
+    photo = update.message.photo[-1]
     file = await context.bot.get_file(photo.file_id)
 
-    # Создаём папку для пользователя, если нет
     user_dir = os.path.join(Config.UPLOAD_DIR, str(user_id))
     os.makedirs(user_dir, exist_ok=True)
 
-    # Сохраняем файл
     file_path = os.path.join(user_dir, f"photo_{photo_count + 1}.jpg")
     await file.download_to_drive(file_path)
     logger.info(f"Фото #{photo_count + 1} сохранено в {file_path} (user {user_id})")
 
-    # Сохраняем в БД
     await db.add_photo(user_id, photo.file_id, file_path, "input")
 
-    # Обновляем кэш и БД (в add_photo счётчик уже увеличился, но лучше перечитать)
     new_count = await db.get_user_photo_count(user_id)
     context.user_data['photo_count'] = new_count
     remaining = Config.MAX_PHOTOS - new_count
@@ -90,11 +76,9 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"Загружено: {new_count}/{Config.MAX_PHOTOS}\n"
         f"Осталось: {remaining}"
     )
-
     return PHOTO
 
 async def done_uploading(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Завершает загрузку фото (по кнопке или команде /done)"""
     user_id = update.effective_user.id
     db = await get_db()
     photo_count = context.user_data.get('photo_count')
@@ -117,14 +101,12 @@ async def done_uploading(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return ConversationHandler.END
 
 async def cancel_upload(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Отменяет загрузку (по кнопке или команде /cancel)"""
     await update.message.reply_text(
         "❌ Загрузка отменена.",
         reply_markup=get_main_menu_keyboard()
     )
     return ConversationHandler.END
 
-# ConversationHandler
 upload_conversation = ConversationHandler(
     entry_points=[
         CommandHandler("upload", upload_command),
@@ -133,7 +115,6 @@ upload_conversation = ConversationHandler(
     states={
         PHOTO: [
             MessageHandler(filters.PHOTO, handle_photo),
-            # Обработчики для кнопок и команд
             MessageHandler(filters.Text("✅ Готово"), done_uploading),
             MessageHandler(filters.Text("❌ Отмена"), cancel_upload),
             CommandHandler("done", done_uploading),

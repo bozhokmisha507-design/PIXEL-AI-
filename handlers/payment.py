@@ -1,7 +1,5 @@
 import uuid
 import logging
-import base64
-import re
 from telegram import Update, Bot, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes, CommandHandler
 from yoomoney import Quickpay, Client
@@ -14,9 +12,7 @@ from utils.helpers import send_photo_or_fallback
 logger = logging.getLogger(__name__)
 aitunnel_service = AITunnelService()
 
-# ---------- Команда /buy ----------
 async def buy_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Создаёт ссылку на оплату и отправляет её в виде красивой inline-кнопки."""
     user_id = update.effective_user.id
     label = f"order_{user_id}_{uuid.uuid4().hex[:8]}"
     amount = Config.PRICE_PER_GENERATION
@@ -38,12 +34,11 @@ async def buy_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         logger.error(f"Ошибка создания ссылки на оплату для user {user_id}: {e}", exc_info=True)
         await update.message.reply_text(
-            "❌ Не удалось создать ссылку на оплату. Пожалуйста, попробуйте позже.",
+            "❌ Не удалось создать ссылку на оплату. Попробуйте позже.",
             reply_markup=get_main_menu_keyboard()
         )
         return
 
-    # Создаём красивую inline-кнопку вместо длинной ссылки
     keyboard = [[InlineKeyboardButton("💳 Оплатить 38₽", url=payment_url)]]
     reply_markup = InlineKeyboardMarkup(keyboard)
 
@@ -53,7 +48,6 @@ async def buy_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         reply_markup=reply_markup
     )
 
-# ---------- Фоновая проверка платежей ----------
 async def check_payments_job(context: ContextTypes.DEFAULT_TYPE):
     access_token = Config.YOOMONEY_ACCESS_TOKEN
     if not access_token:
@@ -75,18 +69,11 @@ async def check_payments_job(context: ContextTypes.DEFAULT_TYPE):
             for operation in history.operations:
                 if operation.status == 'success' and operation.label == label:
                     logger.info(f"Платёж подтверждён (фоновый) для user {user_id}, label {label}")
-                    await generate_paid_photo(
-                        user_id,
-                        context.bot,
-                        db,
-                        context,
-                        label=label
-                    )
+                    await generate_paid_photo(user_id, context.bot, db, context, label=label)
                     break
         except Exception as e:
             logger.error(f"Ошибка при проверке заказа {label}: {e}")
 
-# ---------- Обработка вебхука ----------
 async def handle_yoomoney_notification(data: dict, bot: Bot, db):
     logger.info(f"Обработка уведомления от ЮMoney: {data}")
     label = data.get('label')
@@ -101,9 +88,7 @@ async def handle_yoomoney_notification(data: dict, bot: Bot, db):
         return
     await generate_paid_photo(user_id, bot, db, context=None, label=label)
 
-# ---------- Генерация фото ----------
 async def generate_paid_photo(user_id: int, bot: Bot, db, context=None, label=None):
-    """Генерирует фото после подтверждения оплаты."""
     try:
         if label:
             if not await db.try_mark_order_processed(label):
@@ -130,6 +115,7 @@ async def generate_paid_photo(user_id: int, bot: Bot, db, context=None, label=No
             )
             return
 
+        # ✅ Получаем только существующие фото
         photo_paths = await db.get_user_photos(user_id, "input")
         if not photo_paths:
             await bot.send_message(
@@ -178,5 +164,4 @@ async def generate_paid_photo(user_id: int, bot: Bot, db, context=None, label=No
             text="❌ Произошла внутренняя ошибка. Мы уже работаем над её исправлением."
         )
 
-# ---------- Экспортируемый обработчик ----------
 buy_handler = CommandHandler("buy", buy_command)

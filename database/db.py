@@ -1,6 +1,6 @@
 import aiosqlite
 import logging
-import os  # добавлен для проверки существования файлов
+import os
 from datetime import datetime
 
 logger = logging.getLogger(__name__)
@@ -11,7 +11,6 @@ class Database:
 
     async def init(self):
         async with aiosqlite.connect(self.db_path) as db:
-            # Таблица пользователей
             await db.execute("""
                 CREATE TABLE IF NOT EXISTS users (
                     user_id INTEGER PRIMARY KEY,
@@ -24,8 +23,6 @@ class Database:
                     photo_count INTEGER DEFAULT 0
                 )
             """)
-
-            # Таблица фотографий
             await db.execute("""
                 CREATE TABLE IF NOT EXISTS photos (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -38,8 +35,6 @@ class Database:
                     FOREIGN KEY (user_id) REFERENCES users(user_id)
                 )
             """)
-
-            # Таблица генераций
             await db.execute("""
                 CREATE TABLE IF NOT EXISTS generations (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -51,8 +46,6 @@ class Database:
                     FOREIGN KEY (user_id) REFERENCES users(user_id)
                 )
             """)
-
-            # Таблица заказов для платежей
             await db.execute("""
                 CREATE TABLE IF NOT EXISTS orders (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -65,15 +58,11 @@ class Database:
                     FOREIGN KEY (user_id) REFERENCES users(user_id)
                 )
             """)
-
             await db.commit()
 
-    # ===== Пользователи =====
     async def get_or_create_user(self, user_id, username=None, first_name=None):
         async with aiosqlite.connect(self.db_path) as db:
-            cursor = await db.execute(
-                "SELECT * FROM users WHERE user_id = ?", (user_id,)
-            )
+            cursor = await db.execute("SELECT * FROM users WHERE user_id = ?", (user_id,))
             user = await cursor.fetchone()
             if not user:
                 await db.execute(
@@ -81,50 +70,34 @@ class Database:
                     (user_id, username, first_name)
                 )
                 await db.commit()
-                cursor = await db.execute(
-                    "SELECT * FROM users WHERE user_id = ?", (user_id,)
-                )
+                cursor = await db.execute("SELECT * FROM users WHERE user_id = ?", (user_id,))
                 user = await cursor.fetchone()
             return user
 
     async def update_user_state(self, user_id, state):
         async with aiosqlite.connect(self.db_path) as db:
-            await db.execute(
-                "UPDATE users SET state = ? WHERE user_id = ?",
-                (state, user_id)
-            )
+            await db.execute("UPDATE users SET state = ? WHERE user_id = ?", (state, user_id))
             await db.commit()
 
     async def get_user_state(self, user_id):
         async with aiosqlite.connect(self.db_path) as db:
-            cursor = await db.execute(
-                "SELECT state FROM users WHERE user_id = ?", (user_id,)
-            )
+            cursor = await db.execute("SELECT state FROM users WHERE user_id = ?", (user_id,))
             row = await cursor.fetchone()
             return row[0] if row else None
 
     async def get_user_photo_count(self, user_id):
-        """Возвращает количество реально существующих фото на диске."""
         paths = await self.get_user_photos(user_id, "input")
         return len(paths)
 
     async def add_photo(self, user_id, file_id, file_path, photo_type="input", style=None):
         async with aiosqlite.connect(self.db_path) as db:
             await db.execute(
-                "INSERT INTO photos (user_id, file_id, file_path, photo_type, style) "
-                "VALUES (?, ?, ?, ?, ?)",
+                "INSERT INTO photos (user_id, file_id, file_path, photo_type, style) VALUES (?, ?, ?, ?, ?)",
                 (user_id, file_id, file_path, photo_type, style)
             )
-            # Обновляем счётчик фото в users? Но счётчик теперь динамический,
-            # поэтому можно не обновлять или обновлять для обратной совместимости.
-            # Для надёжности лучше пересчитывать при каждом запросе, как мы и делаем.
             await db.commit()
 
     async def get_user_photos(self, user_id, photo_type="input"):
-        """
-        Возвращает список путей к реально существующим файлам фото пользователя.
-        Записи в БД, которым не соответствуют файлы на диске, игнорируются.
-        """
         async with aiosqlite.connect(self.db_path) as db:
             cursor = await db.execute(
                 "SELECT file_path FROM photos WHERE user_id = ? AND photo_type = ?",
@@ -132,18 +105,12 @@ class Database:
             )
             rows = await cursor.fetchall()
             all_paths = [row[0] for row in rows]
-            # Фильтруем только существующие файлы
             existing_paths = [p for p in all_paths if os.path.exists(p)]
             if len(existing_paths) != len(all_paths):
-                logger.warning(
-                    f"Для user {user_id} в БД {len(all_paths)} записей, "
-                    f"но только {len(existing_paths)} файлов существуют."
-                )
+                logger.warning(f"Для user {user_id} в БД {len(all_paths)} записей, но только {len(existing_paths)} файлов существуют.")
             return existing_paths
 
     async def clear_user_photos(self, user_id):
-        """Удаляет все фото пользователя (файлы и записи в БД)."""
-        # Получаем список файлов перед удалением
         paths = await self.get_user_photos(user_id, "input")
         for path in paths:
             try:
@@ -151,12 +118,8 @@ class Database:
                     os.remove(path)
             except Exception as e:
                 logger.error(f"Ошибка удаления файла {path}: {e}")
-        # Удаляем записи из БД
         async with aiosqlite.connect(self.db_path) as db:
-            await db.execute(
-                "DELETE FROM photos WHERE user_id = ? AND photo_type = 'input'",
-                (user_id,)
-            )
+            await db.execute("DELETE FROM photos WHERE user_id = ? AND photo_type = 'input'", (user_id,))
             await db.commit()
 
     async def add_generation(self, user_id, style, status="completed"):
@@ -169,92 +132,62 @@ class Database:
 
     async def set_user_gender(self, user_id: int, gender: str):
         async with aiosqlite.connect(self.db_path) as db:
-            await db.execute(
-                "UPDATE users SET gender = ? WHERE user_id = ?",
-                (gender, user_id)
-            )
+            await db.execute("UPDATE users SET gender = ? WHERE user_id = ?", (gender, user_id))
             await db.commit()
 
     async def get_user_gender(self, user_id: int) -> str | None:
         async with aiosqlite.connect(self.db_path) as db:
-            cursor = await db.execute(
-                "SELECT gender FROM users WHERE user_id = ?",
-                (user_id,)
-            )
+            cursor = await db.execute("SELECT gender FROM users WHERE user_id = ?", (user_id,))
             row = await cursor.fetchone()
             return row[0] if row else None
 
     async def set_user_selected_style(self, user_id: int, style_key: str):
         logger.info(f"📝 Сохраняем стиль {style_key} для user {user_id}")
         async with aiosqlite.connect(self.db_path) as db:
-            await db.execute(
-                "UPDATE users SET selected_style = ? WHERE user_id = ?",
-                (style_key, user_id)
-            )
+            await db.execute("UPDATE users SET selected_style = ? WHERE user_id = ?", (style_key, user_id))
             await db.commit()
         logger.info(f"✅ Стиль сохранён")
 
     async def get_user_selected_style(self, user_id: int) -> str | None:
         logger.info(f"🔍 Получаем стиль для user {user_id}")
         async with aiosqlite.connect(self.db_path) as db:
-            cursor = await db.execute(
-                "SELECT selected_style FROM users WHERE user_id = ?",
-                (user_id,)
-            )
+            cursor = await db.execute("SELECT selected_style FROM users WHERE user_id = ?", (user_id,))
             row = await cursor.fetchone()
             style = row[0] if row else None
             logger.info(f"📦 Найден стиль: {style}")
             return style
 
-    # ===== Заказы =====
     async def create_order(self, user_id: int, label: str, amount: float) -> None:
         async with aiosqlite.connect(self.db_path) as db:
-            await db.execute(
-                "INSERT INTO orders (user_id, label, amount) VALUES (?, ?, ?)",
-                (user_id, label, amount)
-            )
+            await db.execute("INSERT INTO orders (user_id, label, amount) VALUES (?, ?, ?)", (user_id, label, amount))
             await db.commit()
 
     async def get_unprocessed_orders(self) -> list:
         async with aiosqlite.connect(self.db_path) as db:
-            cursor = await db.execute(
-                "SELECT label, user_id FROM orders WHERE processed = 0"
-            )
+            cursor = await db.execute("SELECT label, user_id FROM orders WHERE processed = 0")
             rows = await cursor.fetchall()
             return [{"label": row[0], "user_id": row[1]} for row in rows]
 
     async def mark_order_processed(self, label: str) -> None:
         async with aiosqlite.connect(self.db_path) as db:
-            await db.execute(
-                "UPDATE orders SET processed = 1 WHERE label = ?",
-                (label,)
-            )
+            await db.execute("UPDATE orders SET processed = 1 WHERE label = ?", (label,))
             await db.commit()
 
     async def try_mark_order_processed(self, label: str) -> bool:
-        """Пытается пометить заказ как обработанный. Возвращает True, если заказ был не обработан и помечен."""
         async with aiosqlite.connect(self.db_path) as db:
-            cursor = await db.execute(
-                "UPDATE orders SET processed = 1 WHERE label = ? AND processed = 0",
-                (label,)
-            )
+            cursor = await db.execute("UPDATE orders SET processed = 1 WHERE label = ? AND processed = 0", (label,))
             await db.commit()
             return cursor.rowcount > 0
 
     async def is_order_processed(self, label: str) -> bool:
         async with aiosqlite.connect(self.db_path) as db:
-            cursor = await db.execute(
-                "SELECT processed FROM orders WHERE label = ?",
-                (label,)
-            )
+            cursor = await db.execute("SELECT processed FROM orders WHERE label = ?", (label,))
             row = await cursor.fetchone()
             return bool(row and row[0])
 
-# ===== Глобальный экземпляр БД =====
 _db_instance = None
 
 async def get_db():
-    """Возвращает глобальный экземпляр БД, создавая его при первом вызове."""
     global _db_instance
     if _db_instance is None:
         _db_instance = Database()

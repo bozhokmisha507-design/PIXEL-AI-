@@ -64,7 +64,26 @@ class AITunnelService:
                 )
             else:
                 prompt = base_prompt.replace("{token}", "this person")
+        # 🔥 НОВЫЙ УСИЛЕННЫЙ СТИЛЬ ДЛЯ Ч/Б ПОРТРЕТА
+        elif style_key == "artistic_bw":
+            if gender == 'male':
+                prompt = (
+                    "dramatic high-contrast black and white portrait of this man, "
+                    "strong chiaroscuro lighting, deep shadows, silver gelatin print aesthetic, "
+                    "heavily stylized fine art photography, expressive mood, "
+                    "8k, photorealistic, face clearly visible"
+                )
+            elif gender == 'female':
+                prompt = (
+                    "dramatic high-contrast black and white portrait of this woman, "
+                    "strong chiaroscuro lighting, deep shadows, silver gelatin print aesthetic, "
+                    "heavily stylized fine art photography, expressive mood, "
+                    "8k, photorealistic, face clearly visible"
+                )
+            else:
+                prompt = base_prompt.replace("{token}", "this person")
         else:
+            # Для всех остальных стилей просто подставляем правильное обращение
             if gender == 'male':
                 subject = "this man"
             elif gender == 'female':

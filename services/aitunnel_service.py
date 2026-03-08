@@ -3,16 +3,17 @@ import base64
 import logging
 import aiohttp
 import asyncio
-import json
 from config import Config
 
 logger = logging.getLogger(__name__)
 
 class AITunnelService:
-    def __init__(self):
+    def __init__(self, model_type: str = "gemini", quality: str = "medium", size: str = "1024x1024"):
         self.api_key = Config.AITUNNEL_API_KEY
         self.base_url = "https://api.aitunnel.ru/v1"
-        self.image_model = Config.AITUNNEL_IMAGE_MODEL
+        self.model_type = model_type
+        self.quality = quality
+        self.size = size
 
     async def generate_photos(self, user_photo_paths: list, style_key: str, num_images: int = 1, gender=None) -> list:
         style = Config.STYLES.get(style_key)
@@ -21,7 +22,7 @@ class AITunnelService:
 
         base_prompt = style["prompt"]
 
-        # Специальная обработка для стилей, требующих гендерной адаптации
+        # ---------- ГЕНДЕРНАЯ АДАПТАЦИЯ (все ваши кастомные стили) ----------
         if style_key == "bare_chest":
             if gender == 'male':
                 prompt = "professional fitness portrait of this man, showing muscular athletic physique, six-pack abs visible, gym background, dramatic lighting, 8k, face clearly visible"
@@ -29,7 +30,6 @@ class AITunnelService:
                 prompt = "professional fitness portrait of this woman, wearing a sports bra, showing fit feminine physique, toned body, gym background, soft lighting, 8k, face clearly visible, photorealistic"
             else:
                 prompt = base_prompt.replace("{token}", "this person")
-
         elif style_key == "evening_suit":
             if gender == 'male':
                 prompt = "elegant evening suit portrait of this man in a classic tuxedo or formal suit, red carpet or luxurious interior background, sophisticated lighting, sharp focus, high-end fashion photography, 8k, photorealistic, face clearly visible, confident pose"
@@ -37,7 +37,6 @@ class AITunnelService:
                 prompt = "glamorous evening gown portrait of this woman, wearing a stunning evening dress, high heels, holding a glass of wine, luxurious ballroom or red carpet background, sophisticated lighting, 8k, photorealistic, professional retouching, face clearly visible, elegant pose"
             else:
                 prompt = base_prompt.replace("{token}", "this person")
-
         elif style_key == "business":
             if gender == 'male':
                 prompt = base_prompt.replace("{token}", "this man")
@@ -49,8 +48,6 @@ class AITunnelService:
                 )
             else:
                 prompt = base_prompt.replace("{token}", "this person")
-
-        # 🔥 НОВЫЙ СТИЛЬ – Студийная съемка
         elif style_key == "editorial_studio":
             if gender == 'male':
                 prompt = (
@@ -67,9 +64,7 @@ class AITunnelService:
                 )
             else:
                 prompt = base_prompt.replace("{token}", "this person")
-
         else:
-            # Для всех остальных стилей просто подставляем правильное обращение
             if gender == 'male':
                 subject = "this man"
             elif gender == 'female':
@@ -78,7 +73,7 @@ class AITunnelService:
                 subject = "this person"
             prompt = base_prompt.replace("{token}", subject)
 
-        logger.info(f"Генерация фото в стиле {style_key}, промпт: {prompt[:100]}...")
+        logger.info(f"Генерация фото в стиле {style_key} через {self.model_type}, промпт: {prompt[:100]}...")
 
         if not user_photo_paths:
             logger.error("❌ Список фото пользователя пуст")
@@ -98,94 +93,97 @@ class AITunnelService:
             logger.error("❌ Ни одно из фото пользователя не найдено на диске")
             return []
 
-        try:
-            with open(ref_photo_path, "rb") as f:
-                image_data = base64.b64encode(f.read()).decode("utf-8")
-                data_url = f"data:image/jpeg;base64,{image_data}"
-                logger.info(f"📸 Фото закодировано, размер: {len(image_data)} символов")
-        except Exception as e:
-            logger.error(f"❌ Ошибка кодирования фото {ref_photo_path}: {e}")
-            return []
-
         results = []
-        for i in range(num_images):
+        if self.model_type == "gemini":
+            # ---------- Gemini через chat/completions ----------
             try:
-                logger.info(f"📤 Отправка запроса к AI Tunnel (Gemini 2.5 Flash Image) для фото #{i+1}")
-
-                async with aiohttp.ClientSession() as session:
-                    headers = {
-                        "Authorization": f"Bearer {self.api_key}",
-                        "Content-Type": "application/json"
-                    }
-
-                    payload = {
-                        "model": self.image_model,
-                        "messages": [
-                            {
-                                "role": "user",
-                                "content": [
-                                    {
-                                        "type": "image_url",
-                                        "image_url": {
-                                            "url": data_url
-                                        }
-                                    },
-                                    {
-                                        "type": "text",
-                                        "text": f"Сгенерируй фото на основе этого человека: {prompt}"
-                                    }
-                                ]
-                            }
-                        ],
-                        "modalities": ["image", "text"],
-                        "max_tokens": 1000
-                    }
-
-                    timeout_obj = aiohttp.ClientTimeout(total=60)
-                    async with session.post(
-                        f"{self.base_url}/chat/completions",
-                        headers=headers,
-                        json=payload,
-                        timeout=timeout_obj
-                    ) as response:
-                        if response.status == 200:
-                            result = await response.json()
-                            logger.info(f"📩 Ответ от Gemini API получен")
-
-                            if 'choices' in result and len(result['choices']) > 0:
-                                message = result['choices'][0].get('message', {})
-
-                                if 'images' in message:
-                                    for img in message['images']:
-                                        if 'image_url' in img and 'url' in img['image_url']:
-                                            image_url = img['image_url']['url']
-                                            results.append(image_url)
-                                            logger.info(f"🖼️ Получено изображение: {image_url[:50]}...")
-
-                                elif 'content' in message and message['content']:
-                                    content = message['content']
-                                    if content.startswith('data:image') or len(content) > 1000:
-                                        results.append(content)
-                                        logger.info("📦 Получено base64 изображение в content")
-                                    else:
-                                        logger.warning(f"⚠️ Получен текст вместо изображения: {content[:100]}")
-                                else:
-                                    logger.warning("⚠️ Нет изображения в ответе")
-                            else:
-                                logger.error("❌ Нет choices в ответе")
-                        else:
-                            error_text = await response.text()
-                            logger.error(f"❌ Ошибка Gemini API: {response.status}")
-
-            except asyncio.TimeoutError:
-                logger.error(f"⏰ Таймаут при генерации фото #{i+1}")
+                with open(ref_photo_path, "rb") as f:
+                    image_data = base64.b64encode(f.read()).decode("utf-8")
+                    data_url = f"data:image/jpeg;base64,{image_data}"
             except Exception as e:
-                logger.error(f"❌ Ошибка при генерации фото #{i+1}: {e}", exc_info=True)
+                logger.error(f"❌ Ошибка кодирования фото: {e}")
+                return []
+
+            for i in range(num_images):
+                try:
+                    async with aiohttp.ClientSession() as session:
+                        headers = {
+                            "Authorization": f"Bearer {self.api_key}",
+                            "Content-Type": "application/json"
+                        }
+                        payload = {
+                            "model": Config.AITUNNEL_IMAGE_MODEL,
+                            "messages": [
+                                {
+                                    "role": "user",
+                                    "content": [
+                                        {"type": "image_url", "image_url": {"url": data_url}},
+                                        {"type": "text", "text": f"Сгенерируй фото на основе этого человека: {prompt}"}
+                                    ]
+                                }
+                            ],
+                            "modalities": ["image", "text"],
+                            "max_tokens": 1000
+                        }
+                        async with session.post(
+                            f"{self.base_url}/chat/completions",
+                            headers=headers,
+                            json=payload,
+                            timeout=aiohttp.ClientTimeout(total=60)
+                        ) as resp:
+                            if resp.status == 200:
+                                result = await resp.json()
+                                if 'choices' in result and result['choices']:
+                                    message = result['choices'][0].get('message', {})
+                                    if 'images' in message:
+                                        for img in message['images']:
+                                            if 'image_url' in img and 'url' in img['image_url']:
+                                                results.append(img['image_url']['url'])
+                                    elif 'content' in message and message['content'].startswith('data:image'):
+                                        results.append(message['content'])
+                                    else:
+                                        logger.warning("⚠️ Нет изображения в ответе")
+                            else:
+                                error_text = await resp.text()
+                                logger.error(f"❌ Ошибка Gemini: {resp.status}")
+                except Exception as e:
+                    logger.error(f"❌ Ошибка генерации Gemini: {e}", exc_info=True)
+        else:
+            # ---------- GPT Image через /images/edits ----------
+            for i in range(num_images):
+                try:
+                    async with aiohttp.ClientSession() as session:
+                        form_data = aiohttp.FormData()
+                        form_data.add_field('model', 'gpt-image-1.5')
+                        with open(ref_photo_path, 'rb') as f:
+                            image_bytes = f.read()
+                        form_data.add_field('image[]', image_bytes, filename='photo.jpg', content_type='image/jpeg')
+                        form_data.add_field('prompt', prompt)
+                        form_data.add_field('quality', self.quality)
+                        form_data.add_field('size', self.size)
+                        form_data.add_field('n', str(num_images))
+
+                        headers = {
+                            "Authorization": f"Bearer {self.api_key}"
+                        }
+                        async with session.post(
+                            f"{self.base_url}/images/edits",
+                            headers=headers,
+                            data=form_data
+                        ) as resp:
+                            if resp.status == 200:
+                                data = await resp.json()
+                                if 'data' in data:
+                                    for item in data['data']:
+                                        if 'b64_json' in item:
+                                            results.append(f"data:image/png;base64,{item['b64_json']}")
+                                        elif 'url' in item:
+                                            results.append(item['url'])
+                            else:
+                                error_text = await resp.text()
+                                logger.error(f"❌ Ошибка GPT Image: {resp.status} - {error_text}")
+                except Exception as e:
+                    logger.error(f"❌ Ошибка при генерации GPT Image: {e}", exc_info=True)
 
         logger.info(f"✅ Генерация завершена, получено {len(results)} фото")
         return results
-
-    @staticmethod
-    def _encode_image(image_path: str) -> str:
-        with open(image_path, "rb") as f:
-            return base64.b64encode(f.read()).decode("utf-8")

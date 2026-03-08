@@ -1,5 +1,7 @@
 import uuid
 import logging
+import base64
+import re
 from telegram import Update, Bot, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes, CommandHandler
 from yoomoney import Quickpay, Client
@@ -10,12 +12,15 @@ from database.db import get_db
 from utils.helpers import send_photo_or_fallback
 
 logger = logging.getLogger(__name__)
-aitunnel_service = AITunnelService()
 
+# ---------- Команда /buy ----------
 async def buy_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
+
+    selected_model = context.user_data.get('selected_model', 'gemini')
+    amount = Config.PRICE_PREMIUM if selected_model == 'gpt' else Config.PRICE_PER_GENERATION
+
     label = f"order_{user_id}_{uuid.uuid4().hex[:8]}"
-    amount = Config.PRICE_PER_GENERATION
 
     db = await get_db()
     await db.create_order(user_id, label, amount)
@@ -39,15 +44,16 @@ async def buy_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
-    keyboard = [[InlineKeyboardButton("💳 Оплатить 38₽", url=payment_url)]]
+    keyboard = [[InlineKeyboardButton("💳 Оплатить", url=payment_url)]]
     reply_markup = InlineKeyboardMarkup(keyboard)
 
     await update.message.reply_text(
         f"✨ Стоимость генерации: {amount} руб.\n\n"
-        "👇 Нажми кнопку ниже для оплаты:",
+        f"👇 Нажми кнопку ниже для оплаты:",
         reply_markup=reply_markup
     )
 
+# ---------- Фоновая проверка платежей ----------
 async def check_payments_job(context: ContextTypes.DEFAULT_TYPE):
     access_token = Config.YOOMONEY_ACCESS_TOKEN
     if not access_token:
@@ -69,11 +75,18 @@ async def check_payments_job(context: ContextTypes.DEFAULT_TYPE):
             for operation in history.operations:
                 if operation.status == 'success' and operation.label == label:
                     logger.info(f"Платёж подтверждён (фоновый) для user {user_id}, label {label}")
-                    await generate_paid_photo(user_id, context.bot, db, context, label=label)
+                    await generate_paid_photo(
+                        user_id,
+                        context.bot,
+                        db,
+                        context,
+                        label=label
+                    )
                     break
         except Exception as e:
             logger.error(f"Ошибка при проверке заказа {label}: {e}")
 
+# ---------- Обработка вебхука ----------
 async def handle_yoomoney_notification(data: dict, bot: Bot, db):
     logger.info(f"Обработка уведомления от ЮMoney: {data}")
     label = data.get('label')
@@ -88,6 +101,7 @@ async def handle_yoomoney_notification(data: dict, bot: Bot, db):
         return
     await generate_paid_photo(user_id, bot, db, context=None, label=label)
 
+# ---------- Генерация фото ----------
 async def generate_paid_photo(user_id: int, bot: Bot, db, context=None, label=None):
     try:
         if label:
@@ -97,7 +111,6 @@ async def generate_paid_photo(user_id: int, bot: Bot, db, context=None, label=No
             logger.info(f"Заказ {label} зарезервирован для генерации для user {user_id}")
 
         style_key = await db.get_user_selected_style(user_id)
-
         if not style_key:
             await bot.send_message(
                 chat_id=user_id,
@@ -115,7 +128,6 @@ async def generate_paid_photo(user_id: int, bot: Bot, db, context=None, label=No
             )
             return
 
-        # ✅ Получаем только существующие фото
         photo_paths = await db.get_user_photos(user_id, "input")
         if not photo_paths:
             await bot.send_message(
@@ -125,9 +137,16 @@ async def generate_paid_photo(user_id: int, bot: Bot, db, context=None, label=No
             return
 
         gender = await db.get_user_gender(user_id)
-        aitunnel = AITunnelService()
 
-        results = await aitunnel.generate_photos(
+        selected_model = context.user_data.get('selected_model', 'gemini') if context else 'gemini'
+        if selected_model == 'gemini':
+            service = AITunnelService()
+            logger.info(f"Generating with Gemini for user {user_id}")
+        else:
+            service = AITunnelService(model_type="gpt", quality="high", size="1024x1024")
+            logger.info(f"Generating with GPT Image High for user {user_id}")
+
+        results = await service.generate_photos(
             user_photo_paths=photo_paths,
             style_key=style_key,
             num_images=1,
@@ -149,6 +168,8 @@ async def generate_paid_photo(user_id: int, bot: Bot, db, context=None, label=No
 
         if context and 'selected_style' in context.user_data:
             context.user_data.pop('selected_style')
+        if context and 'selected_model' in context.user_data:
+            context.user_data.pop('selected_model')
 
         await bot.send_message(
             chat_id=user_id,

@@ -90,9 +90,33 @@ async def style_selected_callback(update: Update, context: ContextTypes.DEFAULT_
     context.user_data['selected_style'] = style_key
     logger.info(f"✅ Стиль {style_key} сохранён для user {user_id}")
 
+    # Предлагаем выбор модели/качества
+    keyboard = [
+        [InlineKeyboardButton("🚀 Gemini (базовое) – 38₽", callback_data="select_model_gemini")],
+        [InlineKeyboardButton("💎 GPT Image High (премиум) – 68₽", callback_data="select_model_gpt")]
+    ]
     await query.edit_message_text(
         f"✅ Стиль «{style['name']}» выбран.\n\n"
-        f"Теперь нажми «💳 Купить генерацию», чтобы оплатить и получить фото.",
+        "Теперь выберите качество генерации:",
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+
+async def model_selected_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    if query is None or query.data is None:
+        return
+    await query.answer()
+
+    user_id = update.effective_user.id
+    choice = query.data.replace("select_model_", "")
+    context.user_data['selected_model'] = choice
+
+    price = Config.PRICE_PER_GENERATION if choice == "gemini" else Config.PRICE_PREMIUM
+    model_name = "Gemini" if choice == "gemini" else "GPT Image High"
+
+    await query.edit_message_text(
+        f"✅ Выбрано качество: {model_name} – {price}₽\n\n"
+        f"Теперь нажми «💳 Купить генерацию» для оплаты.",
         parse_mode='Markdown'
     )
     await context.bot.send_message(
@@ -105,3 +129,4 @@ async def style_selected_callback(update: Update, context: ContextTypes.DEFAULT_
 styles_handler = CommandHandler("styles", styles_command)
 show_styles_cb = CallbackQueryHandler(show_styles_callback, pattern="^show_styles$")
 style_selected_cb = CallbackQueryHandler(style_selected_callback, pattern="^select_style_")
+model_selected_cb = CallbackQueryHandler(model_selected_callback, pattern="^select_model_")

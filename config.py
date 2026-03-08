@@ -11,7 +11,8 @@ class Config:
     # ЮMoney
     YOOMONEY_ACCESS_TOKEN = os.getenv("YOOMONEY_ACCESS_TOKEN")
     YOOMONEY_WALLET = os.getenv("YOOMONEY_WALLET", "")
-    PRICE_PER_GENERATION = 38
+    PRICE_PER_GENERATION = 38          # базовая цена (Gemini)
+    PRICE_PREMIUM = 68                  # премиум цена (GPT Image High)
 
     # Telegram Payments (на будущее)
     PAYMENT_PROVIDER_TOKEN = os.getenv("PAYMENT_PROVIDER_TOKEN", "")
@@ -25,10 +26,10 @@ class Config:
 
     # ==================== ВСЕ СТИЛИ ====================
     STYLES = {
-        # ---------- Существующие стили ----------
+        # 🔥 Студийная съемка – первый
         "editorial_studio": {
             "name": "📸 Студийная съемка",
-            "prompt": "placeholder",  # не используется, заменяется в коде
+            "prompt": "placeholder",
             "count": 1
         },
         "business": {
@@ -191,7 +192,6 @@ class Config:
             "prompt": "ethereal portrait of {token} as a forest spirit, natural makeup with leaves and vines, glowing skin, mystical forest with sun rays filtering through trees, soft focus, magical atmosphere, 8k, photorealistic, professional retouching, face clearly visible",
             "count": 1
         },
-        
     }
 
     @classmethod

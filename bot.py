@@ -65,6 +65,7 @@ async def main_async():
     application.add_handler(upload_conversation)
     application.add_handler(show_styles_cb)
     application.add_handler(style_selected_cb)
+    application.add_handler(model_selected_cb)
     application.add_handler(CallbackQueryHandler(gender_callback, pattern="^set_gender_"))
     application.add_handler(buy_handler)
     

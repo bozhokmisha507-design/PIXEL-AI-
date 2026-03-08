@@ -17,7 +17,10 @@ logger = logging.getLogger(__name__)
 async def buy_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
 
-    selected_model = context.user_data.get('selected_model', 'gemini')
+    # Определяем выбранную модель и цену
+    selected_model = 'gemini'
+    if context.user_data is not None:
+        selected_model = context.user_data.get('selected_model', 'gemini')
     amount = Config.PRICE_PREMIUM if selected_model == 'gpt' else Config.PRICE_PER_GENERATION
 
     label = f"order_{user_id}_{uuid.uuid4().hex[:8]}"
@@ -138,7 +141,11 @@ async def generate_paid_photo(user_id: int, bot: Bot, db, context=None, label=No
 
         gender = await db.get_user_gender(user_id)
 
-        selected_model = context.user_data.get('selected_model', 'gemini') if context else 'gemini'
+        # 🔥 Безопасное получение выбранной модели
+        selected_model = 'gemini'
+        if context is not None and context.user_data is not None:
+            selected_model = context.user_data.get('selected_model', 'gemini')
+
         if selected_model == 'gemini':
             service = AITunnelService()
             logger.info(f"Generating with Gemini for user {user_id}")
@@ -166,10 +173,10 @@ async def generate_paid_photo(user_id: int, bot: Bot, db, context=None, label=No
                 text="❌ Не удалось сгенерировать фото. Попробуйте позже."
             )
 
-        if context and 'selected_style' in context.user_data:
-            context.user_data.pop('selected_style')
-        if context and 'selected_model' in context.user_data:
-            context.user_data.pop('selected_model')
+        # Очищаем user_data, если есть
+        if context is not None and context.user_data is not None:
+            context.user_data.pop('selected_style', None)
+            context.user_data.pop('selected_model', None)
 
         await bot.send_message(
             chat_id=user_id,

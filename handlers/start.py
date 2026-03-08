@@ -113,14 +113,13 @@ async def get_file_id_command(update: Update, context: ContextTypes.DEFAULT_TYPE
     await update.message.reply_text("📸 Отправьте мне фото, и я покажу его file_id.")
 
 async def handle_photo_for_file_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Обрабатывает фото и возвращает file_id."""
+    """Обрабатывает фото и возвращает file_id (без Markdown)."""
     if update.message.photo:
         # Берём самое большое фото (последнее в списке)
         file_id = update.message.photo[-1].file_id
         await update.message.reply_text(
-            f"✅ **FILE_ID получен:**\n`{file_id}`\n\n"
-            "Скопируйте эту строку и вставьте в переменную `EXAMPLE_IMAGE_FILE_ID` в `handlers/start.py`.",
-            parse_mode='Markdown'
+            f"✅ FILE_ID получен:\n{file_id}\n\n"
+            "Скопируйте эту строку и вставьте в переменную EXAMPLE_IMAGE_FILE_ID в handlers/start.py."
         )
     else:
         await update.message.reply_text("❌ Это не фото. Отправьте изображение.")

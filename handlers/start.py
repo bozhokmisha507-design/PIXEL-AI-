@@ -6,6 +6,58 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+# ⚠️ ВРЕМЕННАЯ ФУНКЦИЯ ДЛЯ ПОЛУЧЕНИЯ FILE_ID
+async def send_welcome_message(chat_id: int, first_name: str, bot: Bot):
+    # Убедитесь, что у вас есть прямая ссылка на коллаж (например, с ImgBB)
+    collage_url = "https://i.ibb.co/5hMJLjDV/collage.png"  # вставьте вашу актуальную ссылку
+
+    try:
+        # Отправляем фото по ссылке
+        msg = await bot.send_photo(
+            chat_id=chat_id,
+            photo=collage_url,
+            caption="⏳ Получаем file_id..."
+        )
+        # Из ответа Telegram извлекаем file_id
+        file_id = msg.photo[-1].file_id
+        # Логируем его – вы увидите эту строку в логах хостинга
+        logger.info(f"🔥 ПОЛУЧЕН FILE_ID: {file_id}")
+
+        # Теперь отправляем настоящее приветствие с этим file_id
+        welcome_text = (
+            f"🎨 *Привет, {first_name}!*\n\n"
+            f"Добро пожаловать в *AI Фотосессия Бот*! 📸\n\n"
+            f"Вот примеры того, что мы можем создать — множество стилей на основе одного лица:\n\n"
+            f"1️⃣ Загрузи свои селфи (2-5 фото)\n"
+            f"2️⃣ Выбери стиль\n"
+            f"3️⃣ Получи готовую фотосессию!\n\n"
+            f"👇 Жми на кнопки ниже и пробуй!"
+        )
+        await bot.send_photo(
+            chat_id=chat_id,
+            photo=file_id,
+            caption=welcome_text,
+            parse_mode='Markdown',
+            reply_markup=get_main_menu_keyboard()
+        )
+    except Exception as e:
+        logger.error(f"Ошибка при получении file_id: {e}")
+        # Если что-то пошло не так, отправляем хотя бы текст
+        welcome_text = (
+            f"🎨 *Привет, {first_name}!*\n\n"
+            f"Добро пожаловать в *AI Фотосессия Бот*! 📸\n\n"
+            f"1️⃣ Загрузи свои селфи (2-5 фото)\n"
+            f"2️⃣ Выбери стиль\n"
+            f"3️⃣ Получи готовую фотосессию!\n\n"
+            f"👇 Жми на кнопки ниже и пробуй!"
+        )
+        await bot.send_message(
+            chat_id=chat_id,
+            text=welcome_text,
+            parse_mode='Markdown',
+            reply_markup=get_main_menu_keyboard()
+        )
+
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Обработчик команды /start."""
     # Проверяем, есть ли аргумент, начинающийся с "payment_"
@@ -39,25 +91,8 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
-    # Если пол уже выбран, отправляем приветствие (только текст)
+    # Если пол уже выбран, отправляем приветствие
     await send_welcome_message(update.effective_chat.id, first_name, context.bot)
-
-async def send_welcome_message(chat_id: int, first_name: str, bot: Bot):
-    """Отправляет приветственное текстовое сообщение и главное меню."""
-    welcome_text = (
-        f"🎨 *Привет, {first_name}!*\n\n"
-        f"Добро пожаловать в *AI Фотосессия Бот*! 📸\n\n"
-        f"1️⃣ Загрузи свои селфи (2-5 фото)\n"
-        f"2️⃣ Выбери стиль\n"
-        f"3️⃣ Получи готовую фотосессию!\n\n"
-        f"👇 Жми на кнопки ниже и пробуй!"
-    )
-    await bot.send_message(
-        chat_id=chat_id,
-        text=welcome_text,
-        parse_mode='Markdown',
-        reply_markup=get_main_menu_keyboard()
-    )
 
 async def gender_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -72,7 +107,6 @@ async def gender_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     db = await get_db()
     await db.set_user_gender(user_id, gender)
 
-    # После сохранения пола отправляем приветствие (только текст)
     await send_welcome_message(query.message.chat.id, update.effective_user.first_name, context.bot)
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):

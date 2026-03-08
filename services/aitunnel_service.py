@@ -8,12 +8,12 @@ from config import Config
 logger = logging.getLogger(__name__)
 
 class AITunnelService:
-    def __init__(self, model_type: str = "gemini", quality: str = "medium", size: str = "1024x1024"):
+    def __init__(self, model_type: str = "gemini", quality: str = "medium", size: str = "1536x1024"):
         self.api_key = Config.AITUNNEL_API_KEY
         self.base_url = "https://api.aitunnel.ru/v1"
         self.model_type = model_type
         self.quality = quality
-        self.size = size
+        self.size = size  # для GPT Image теперь по умолчанию горизонтальный
 
     async def generate_photos(self, user_photo_paths: list, style_key: str, num_images: int = 1, gender=None) -> list:
         style = Config.STYLES.get(style_key)
@@ -22,7 +22,7 @@ class AITunnelService:
 
         base_prompt = style["prompt"]
 
-        # ---------- ГЕНДЕРНАЯ АДАПТАЦИЯ (все ваши кастомные стили) ----------
+        # ---------- ГЕНДЕРНАЯ АДАПТАЦИЯ ----------
         if style_key == "bare_chest":
             if gender == 'male':
                 prompt = "professional fitness portrait of this man, showing muscular athletic physique, six-pack abs visible, gym background, dramatic lighting, 8k, face clearly visible"
@@ -72,6 +72,11 @@ class AITunnelService:
             else:
                 subject = "this person"
             prompt = base_prompt.replace("{token}", subject)
+
+        # 🔥 Добавляем указание на горизонтальный формат для Gemini
+        if self.model_type == "gemini":
+            # Добавляем в конец промпта требование горизонтального формата
+            prompt += " Landscape orientation, horizontal composition, aspect ratio 16:9, wide format."
 
         logger.info(f"Генерация фото в стиле {style_key} через {self.model_type}, промпт: {prompt[:100]}...")
 
@@ -160,7 +165,8 @@ class AITunnelService:
                         form_data.add_field('image[]', image_bytes, filename='photo.jpg', content_type='image/jpeg')
                         form_data.add_field('prompt', prompt)
                         form_data.add_field('quality', self.quality)
-                        form_data.add_field('size', self.size)
+                        # 🔥 Используем горизонтальный размер
+                        form_data.add_field('size', self.size)  # по умолчанию "1536x1024"
                         form_data.add_field('n', str(num_images))
 
                         headers = {

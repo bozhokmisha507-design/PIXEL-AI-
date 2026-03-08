@@ -93,7 +93,7 @@ async def style_selected_callback(update: Update, context: ContextTypes.DEFAULT_
     # Предлагаем выбор модели/качества
     keyboard = [
         [InlineKeyboardButton("🚀 Gemini (базовое) – 38₽", callback_data="select_model_gemini")],
-        [InlineKeyboardButton("💎 GPT Image High (премиум) – 68₽", callback_data="select_model_gpt")]
+        [InlineKeyboardButton("💎 GPT Image High (премиум) – 76₽", callback_data="select_model_gpt")]
     ]
     await query.edit_message_text(
         f"✅ Стиль «{style['name']}» выбран.\n\n"

@@ -15,11 +15,11 @@ from telegram.ext import Application, CommandHandler, MessageHandler, filters, C
 from telegram import Update
 
 from config import Config
-from database.db import get_db  # Импортируем функцию
+from database.db import get_db
 
 from handlers.start import start_handler, help_handler, handle_main_menu_buttons, gender_callback
 from handlers.menu import menu_handler
-from handlers.styles import styles_handler, show_styles_cb, style_selected_cb
+from handlers.styles import styles_handler, show_styles_cb, style_selected_cb, model_selected_cb
 from handlers.upload import upload_conversation
 from handlers.clean import clean_photos_handler
 from handlers.payment import buy_handler, check_payments_job
@@ -33,12 +33,20 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 async def post_init(application: Application) -> None:
-    """Опционально: можно оставить для получения информации о боте."""
+    """Инициализация после создания приложения."""
+    db = await get_db()
+    application.bot_data['db'] = db
+    logger.info("✅ База данных инициализирована")
+
     try:
         bot_user = await application.bot.get_me()
         logger.info(f"🤖 Бот: @{bot_user.username}")
     except Exception as e:
         logger.warning(f"Не удалось получить информацию о боте: {e}")
+
+    # Запускаем веб-сервер как фоновую задачу после инициализации БД
+    asyncio.create_task(start_webhook_server(application.bot))
+    logger.info("🌐 Веб-сервер запущен как фоновая задача")
 
 async def main_async():
     if not Config.BOT_TOKEN:
@@ -48,27 +56,32 @@ async def main_async():
     Config.ensure_dirs()
     logger.info("📁 Папки созданы/проверены")
 
-    # Инициализируем БД (глобальный экземпляр)
-    db = await get_db()
-    logger.info("✅ База данных инициализирована")
-
     application = Application.builder()\
         .token(Config.BOT_TOKEN)\
         .post_init(post_init)\
         .build()
 
-    # Регистрация обработчиков
+    # Команды
     application.add_handler(start_handler)
     application.add_handler(help_handler)
     application.add_handler(menu_handler)
     application.add_handler(styles_handler)
+
+    # ConversationHandler для загрузки фото
     application.add_handler(upload_conversation)
+
+    # Inline-обработчики для стилей и выбора модели
     application.add_handler(show_styles_cb)
     application.add_handler(style_selected_cb)
-    application.add_handler(model_selected_cb)
+    application.add_handler(model_selected_cb)          # <-- добавлен новый обработчик
+
+    # Обработчик выбора пола
     application.add_handler(CallbackQueryHandler(gender_callback, pattern="^set_gender_"))
+
+    # Команда покупки
     application.add_handler(buy_handler)
-    
+
+    # Кнопки главного меню
     application.add_handler(MessageHandler(
         filters.Text([
             "📤 Загрузить фото",
@@ -80,37 +93,26 @@ async def main_async():
         ]),
         handle_main_menu_buttons
     ))
+
+    # Обработчик очистки
     application.add_handler(clean_photos_handler)
 
-    # Фоновая задача проверки платежей
+    # Фоновая задача проверки платежей (каждые 15 секунд)
     job_queue = application.job_queue
     job_queue.run_repeating(check_payments_job, interval=15, first=10)
 
-    # Запускаем веб-сервер (ему тоже нужна БД, он её получит через get_db)
-    asyncio.create_task(start_webhook_server(application.bot))
-    logger.info("🌐 Веб-сервер запущен как фоновая задача")
-
     logger.info("🚀 Бот запускается...")
 
-    # Ручной запуск (без run_polling, чтобы избежать конфликта циклов)
-    await application.initialize()
-    await application.start()
-    await application.updater.start_polling()
+    # Запускаем polling и веб-сервер одновременно
+    await asyncio.gather(
+        application.run_polling(allowed_updates=Update.ALL_TYPES),
+        # Веб-сервер уже запущен в post_init, но можно и здесь, если нужно.
+        # Для надёжности оставляем только polling, веб-сервер уже в фоне.
+        # asyncio.sleep(0)  # или ничего
+    )
 
-    try:
-        # Бесконечное ожидание
-        while True:
-            await asyncio.sleep(3600)
-    except asyncio.CancelledError:
-        logger.info("Получен сигнал завершения")
-    finally:
-        await application.updater.stop()
-        await application.stop()
-        await application.shutdown()
+def main():
+    asyncio.run(main_async())
 
 if __name__ == "__main__":
-    loop = asyncio.get_event_loop()
-    try:
-        loop.run_until_complete(main_async())
-    except KeyboardInterrupt:
-        logger.info("Бот остановлен вручную")
+    main()

@@ -1,28 +1,42 @@
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, Bot
-from telegram.ext import ContextTypes, CommandHandler, CallbackQueryHandler, MessageHandler, filters
+from telegram.ext import ContextTypes, CommandHandler, CallbackQueryHandler
 from database.db import get_db
 from handlers.menu import get_main_menu_keyboard
 import logging
 
 logger = logging.getLogger(__name__)
 
-# ================== ОСНОВНАЯ ЛОГИКА (БЕЗ ФОТО) ==================
+# ⚠️ ВАШ FILE_ID (получен через /getid)
+EXAMPLE_IMAGE_FILE_ID = "AgACAgIAAxkBAAIImmmtLU3VKHz659Im62n7MzgSrT50AAKCFGsbLidoSTQu7GHRWg2NAQADAgADeQADOgQ"
+
 async def send_welcome_message(chat_id: int, first_name: str, bot: Bot):
-    """Отправляет приветственное текстовое сообщение и главное меню."""
+    """Отправляет приветственное фото с подписью и главным меню."""
     welcome_text = (
         f"🎨 *Привет, {first_name}!*\n\n"
         f"Добро пожаловать в *AI Фотосессия Бот*! 📸\n\n"
+        f"Вот примеры того, что мы можем создать — множество стилей на основе одного лица:\n\n"
         f"1️⃣ Загрузи свои селфи (2-5 фото)\n"
         f"2️⃣ Выбери стиль\n"
         f"3️⃣ Получи готовую фотосессию!\n\n"
         f"👇 Жми на кнопки ниже и пробуй!"
     )
-    await bot.send_message(
-        chat_id=chat_id,
-        text=welcome_text,
-        parse_mode='Markdown',
-        reply_markup=get_main_menu_keyboard()
-    )
+    try:
+        await bot.send_photo(
+            chat_id=chat_id,
+            photo=EXAMPLE_IMAGE_FILE_ID,
+            caption=welcome_text,
+            parse_mode='Markdown',
+            reply_markup=get_main_menu_keyboard()
+        )
+    except Exception as e:
+        logger.error(f"Ошибка отправки фото приветствия: {e}")
+        # Если фото не отправилось, отправляем текст
+        await bot.send_message(
+            chat_id=chat_id,
+            text=welcome_text,
+            parse_mode='Markdown',
+            reply_markup=get_main_menu_keyboard()
+        )
 
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Обработчик команды /start."""
@@ -46,8 +60,8 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     gender = await db.get_user_gender(user_id)
     if gender is None:
         keyboard = [
-            [InlineKeyboardButton("👨 Мужской", callback_data="set_gender_male")],
-            [InlineKeyboardButton("👩 Женский", callback_data="set_gender_female")]
+            [InlineKeyboardButton("🤵🏼‍♂️ Мужской", callback_data="set_gender_male")],
+            [InlineKeyboardButton("🤵🏼‍♀️ Женский", callback_data="set_gender_female")]
         ]
         await update.message.reply_text(
             "Пожалуйста, укажите ваш пол, чтобы мы могли подбирать стили правильно:",
@@ -107,26 +121,7 @@ async def handle_main_menu_buttons(update: Update, context: ContextTypes.DEFAULT
     elif text == "🏠 Главное меню":
         await start_command(update, context)
 
-# ================== ВРЕМЕННЫЕ ОБРАБОТЧИКИ ДЛЯ ПОЛУЧЕНИЯ FILE_ID ==================
-async def get_file_id_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Отправляет подсказку для получения file_id."""
-    await update.message.reply_text("📸 Отправьте мне фото, и я покажу его file_id.")
-
-async def handle_photo_for_file_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Обрабатывает фото и возвращает file_id (без Markdown)."""
-    if update.message.photo:
-        # Берём самое большое фото (последнее в списке)
-        file_id = update.message.photo[-1].file_id
-        await update.message.reply_text(
-            f"✅ FILE_ID получен:\n{file_id}\n\n"
-            "Скопируйте эту строку и вставьте в переменную EXAMPLE_IMAGE_FILE_ID в handlers/start.py."
-        )
-    else:
-        await update.message.reply_text("❌ Это не фото. Отправьте изображение.")
-
 # ================== ЭКСПОРТ ОБРАБОТЧИКОВ ==================
 start_handler = CommandHandler("start", start_command)
 help_handler = CommandHandler("help", help_command)
-# Временные обработчики (их нужно будет удалить после получения file_id)
-temp_getid_handler = CommandHandler("getid", get_file_id_command)
-temp_photo_handler = MessageHandler(filters.PHOTO, handle_photo_for_file_id)
+# Временные обработчики УДАЛЕНЫ

@@ -16,7 +16,7 @@ from telegram import Update
 
 from config import Config
 from database.db import get_db  # Импортируем функцию
-
+from handlers.start import temp_getid_handler, temp_photo_handler
 from handlers.start import start_handler, help_handler, handle_main_menu_buttons, gender_callback
 from handlers.menu import menu_handler
 from handlers.styles import styles_handler, show_styles_cb, style_selected_cb
@@ -67,6 +67,8 @@ async def main_async():
     application.add_handler(style_selected_cb)
     application.add_handler(CallbackQueryHandler(gender_callback, pattern="^set_gender_"))
     application.add_handler(buy_handler)
+    application.add_handler(temp_getid_handler)
+    application.add_handler(temp_photo_handler)
     application.add_handler(MessageHandler(
         filters.Text([
             "📤 Загрузить фото",

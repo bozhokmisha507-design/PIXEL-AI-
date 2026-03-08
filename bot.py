@@ -5,7 +5,7 @@ import asyncio
 import warnings
 from telegram.warnings import PTBUserWarning
 
-warnings.filterfilter("ignore", category=PTBUserWarning)
+warnings.filterwarnings("ignore", category=PTBUserWarning)  # <-- исправлено
 
 ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
 if ROOT_DIR not in sys.path:

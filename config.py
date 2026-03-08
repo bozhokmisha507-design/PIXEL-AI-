@@ -23,9 +23,14 @@ class Config:
     MAX_PHOTOS = 5
     RECOMMENDED_PHOTOS = 4
 
-    # ==================== ВСЕ СТИЛИ (старые + новые) ====================
+    # ==================== ВСЕ СТИЛИ ====================
     STYLES = {
         # ---------- Существующие стили ----------
+        "editorial_studio": {
+            "name": "📸 Студийная съемка",
+            "prompt": "placeholder",  # не используется, заменяется в коде
+            "count": 1
+        },
         "business": {
             "name": "💼 Уверенный бизнес-костюм",
             "prompt": "confident corporate portrait of {token}, wearing a sharp tailored navy business suit, white shirt, and silk tie, standing with arms crossed, modern office background with bokeh, dramatic studio lighting, 85mm lens, shallow depth of field, sharp focus on eyes, high-end fashion photography, 8k, photorealistic, face clearly visible",
@@ -111,98 +116,82 @@ class Config:
             "prompt": "elegant evening suit portrait of {token} in a classic tuxedo or formal suit, red carpet or luxurious interior background, sophisticated lighting, sharp focus, high-end fashion photography, 8k, photorealistic, face clearly visible, confident pose",
             "count": 1
         },
-
-        # ---------- НОВЫЕ СТИЛИ ----------
-        # 1. Киберпанк на закате (исправлен по просьбе)
         "cyberpunk_sunset": {
             "name": "🌆 Киберпанк на закате",
             "prompt": "ultra-modern cyberpunk portrait of {token} at sunset, warm golden and pink sky contrasting with neon lights, holographic elements, futuristic cityscape with skyscrapers, glowing accessories, vibrant purple and blue tones, high-tech atmosphere, 8k, photorealistic, professional retouching, face clearly visible, magazine cover quality",
             "count": 1
         },
-        # 2. Фэнтези эльф
         "fantasy_elf": {
             "name": "🧝 Фэнтези эльф",
             "prompt": "fantasy portrait of {token} as an elegant elf, pointed ears, ethereal glowing skin, mystical forest background with sparkling lights, intricate armor or robes, magical atmosphere, dramatic lighting, 8k, photorealistic, high fashion fantasy art, face clearly visible",
             "count": 1
         },
-        # 3. Ретро 80-х
         "retro_80s": {
             "name": "📼 Ретро 80-е",
             "prompt": "vibrant retro 1980s style portrait of {token}, neon colors, big hair, vintage sunglasses, cassette tape or boombox in background, retro arcade lights, bold patterns, 8k, photorealistic, professional retouching, authentic 80s vibe, face clearly visible",
             "count": 1
         },
-        # 4. Экстрим
         "extreme_sport": {
             "name": "🏄 Экстрим",
             "prompt": "dynamic action shot of {token} doing extreme sport like surfing, skateboarding, or motocross, dramatic motion blur, sunset or industrial background, energetic pose, professional sports photography, 8k, photorealistic, face clearly visible, intense expression",
             "count": 1
         },
-        # 5. Старый Голливуд
         "old_hollywood": {
             "name": "🎬 Старый Голливуд",
             "prompt": "glamorous black and white portrait of {token} in old Hollywood style, classic vintage suit or dress, soft dramatic lighting, film noir aesthetic, elegant pose, luxurious background, 8k, photorealistic, professional retouching, timeless elegance, face clearly visible",
             "count": 1
         },
-        # 6. Космический турист
         "space_tourist": {
             "name": "🚀 Космический турист",
             "prompt": "futuristic portrait of {token} as a space tourist, wearing a stylish modern spacesuit with neon accents, floating in zero gravity inside a high-tech spaceship with Earth visible through window, vibrant galaxy colors, 8k, photorealistic, professional retouching, face clearly visible through helmet",
             "count": 1
         },
-        # 7. Андрогинная мода
         "androgynous": {
             "name": "🌀 Андрогинная мода",
             "prompt": "high fashion androgynous portrait of {token}, blending masculine and feminine elements, avant-garde designer clothing, minimalist studio background with geometric shapes, sharp lighting, editorial style, 8k, photorealistic, professional retouching, face clearly visible",
             "count": 1
         },
-        # 8. Пляжный закат
         "beach_sunset": {
             "name": "🌅 Пляжный закат",
             "prompt": "romantic sunset portrait of {token} on the beach, golden hour lighting, warm orange and pink sky, ocean waves, relaxed vacation outfit, barefoot in sand, soft bokeh, 8k, photorealistic, professional retouching, face clearly visible, serene expression",
             "count": 1
         },
-        # 9. Урбанистический шик
         "urban_chic": {
             "name": "🏙️ Урбанистический шик",
             "prompt": "sophisticated urban portrait of {token} in a modern cityscape at night, wearing high-end designer streetwear, reflections in glass buildings, neon signs, moody atmosphere, cinematic lighting, 8k, photorealistic, professional retouching, face clearly visible",
             "count": 1
         },
-        # 10. Киборг
         "cyborg": {
             "name": "⚙️ Киборг",
             "prompt": "ultra-detailed futuristic cyborg portrait of {token}, half human half machine, glowing cybernetic implants, metallic textures, holographic interface elements, dark industrial background with neon lights, 8k, photorealistic, professional retouching, face clearly visible",
             "count": 1
         },
-        # 11. Бохо-шик
         "boho_style": {
             "name": "🌸 Бохо-шик",
             "prompt": "free-spirited bohemian portrait of {token}, wearing flowy floral dress or linen shirt, flower crown, natural makeup, sun flare effect, meadow or forest background, warm earthy tones, 8k, photorealistic, professional retouching, face clearly visible",
             "count": 1
         },
-        # 12. Минимализм
         "minimalist": {
             "name": "⬜ Минимализм",
             "prompt": "clean minimalist portrait of {token}, simple white or pastel background, sharp contrast, geometric composition, modern fashion clothing, soft diffused lighting, 8k, photorealistic, professional retouching, face clearly visible, editorial style",
             "count": 1
         },
-        # 13. Стимпанк
         "steampunk": {
             "name": "⚙️ Стимпанк",
             "prompt": "steampunk portrait of {token} with Victorian era clothing, brass goggles, mechanical accessories, gears and cogs, vintage industrial background with steam, warm sepia and bronze tones, 8k, photorealistic, professional retouching, face clearly visible",
             "count": 1
         },
-        # 14. Красная дорожка
         "red_carpet": {
             "name": "🌟 Красная дорожка",
             "prompt": "glamorous red carpet portrait of {token} in stunning evening gown or tuxedo, sparkling jewelry, paparazzi flashes, luxurious hotel lobby or event background, confident pose, 8k, photorealistic, professional retouching, face clearly visible, celebrity style",
             "count": 1
         },
-        # 15. Лесной дух
         "forest_spirit": {
             "name": "🌲 Лесной дух",
             "prompt": "ethereal portrait of {token} as a forest spirit, natural makeup with leaves and vines, glowing skin, mystical forest with sun rays filtering through trees, soft focus, magical atmosphere, 8k, photorealistic, professional retouching, face clearly visible",
             "count": 1
-        }
+        },
+        
     }
 
     @classmethod

@@ -42,11 +42,28 @@ class AITunnelService:
             if gender == 'male':
                 prompt = base_prompt.replace("{token}", "this man")
             elif gender == 'female':
-                # 🔹 ИСПРАВЛЕНО: blazer ➜ jacket (жакет)
                 prompt = (
                     "professional confident business portrait of this woman, wearing a stylish blue fitted jacket "
                     "and a pencil skirt or tailored dress, professional makeup with red lips, elegant modern office background, "
                     "corporate atmosphere, sharp studio lighting, 8k, photorealistic, professional retouching, face clearly visible"
+                )
+            else:
+                prompt = base_prompt.replace("{token}", "this person")
+
+        # 🔥 НОВЫЙ СТИЛЬ – Студийная съемка
+        elif style_key == "editorial_studio":
+            if gender == 'male':
+                prompt = (
+                    "Hyper-realistic studio photography on a beige background, cinematic bright expensive lighting, "
+                    "sitting on a soft ottoman in full length, wearing white shoes, light jeans, and a light gray unbuttoned shirt, "
+                    "like in a high-end fashion magazine, 8k, photorealistic, face clearly visible, professional retouching"
+                )
+            elif gender == 'female':
+                prompt = (
+                    "Hyper-realistic studio photography on a beige background, cinematic bright expensive lighting, "
+                    "sitting on a soft ottoman, full body or close-up, wearing beige shoes and a powder-colored dress, "
+                    "sometimes holding a bouquet of large white roses, like in a high-end fashion magazine, 8k, photorealistic, "
+                    "face clearly visible, professional retouching, varied composition"
                 )
             else:
                 prompt = base_prompt.replace("{token}", "this person")

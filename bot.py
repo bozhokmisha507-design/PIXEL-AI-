@@ -5,7 +5,7 @@ import asyncio
 import warnings
 from telegram.warnings import PTBUserWarning
 
-warnings.filterwarnings("ignore", category=PTBUserWarning)
+warnings.filterfilter("ignore", category=PTBUserWarning)
 
 ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
 if ROOT_DIR not in sys.path:
@@ -73,7 +73,7 @@ async def main_async():
     # Inline-обработчики для стилей и выбора модели
     application.add_handler(show_styles_cb)
     application.add_handler(style_selected_cb)
-    application.add_handler(model_selected_cb)          # <-- добавлен новый обработчик
+    application.add_handler(model_selected_cb)
 
     # Обработчик выбора пола
     application.add_handler(CallbackQueryHandler(gender_callback, pattern="^set_gender_"))
@@ -103,16 +103,28 @@ async def main_async():
 
     logger.info("🚀 Бот запускается...")
 
-    # Запускаем polling и веб-сервер одновременно
-    await asyncio.gather(
-        application.run_polling(allowed_updates=Update.ALL_TYPES),
-        # Веб-сервер уже запущен в post_init, но можно и здесь, если нужно.
-        # Для надёжности оставляем только polling, веб-сервер уже в фоне.
-        # asyncio.sleep(0)  # или ничего
-    )
+    # Ручной запуск (без run_polling, чтобы избежать конфликта циклов)
+    await application.initialize()
+    await application.start()
+    await application.updater.start_polling()
+
+    try:
+        # Бесконечное ожидание
+        while True:
+            await asyncio.sleep(3600)
+    except asyncio.CancelledError:
+        logger.info("Получен сигнал завершения")
+    finally:
+        await application.updater.stop()
+        await application.stop()
+        await application.shutdown()
 
 def main():
-    asyncio.run(main_async())
+    loop = asyncio.get_event_loop()
+    try:
+        loop.run_until_complete(main_async())
+    except KeyboardInterrupt:
+        logger.info("Бот остановлен вручную")
 
 if __name__ == "__main__":
     main()

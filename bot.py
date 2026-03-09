@@ -5,7 +5,7 @@ import asyncio
 import warnings
 from telegram.warnings import PTBUserWarning
 
-warnings.filterwarnings("ignore", category=PTBUserWarning)  # <-- исправлено
+warnings.filterwarnings("ignore", category=PTBUserWarning)
 
 ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
 if ROOT_DIR not in sys.path:
@@ -18,14 +18,12 @@ from config import Config
 from database.db import get_db
 
 from handlers.start import start_handler, help_handler, handle_main_menu_buttons, gender_callback
-from handlers.menu import menu_handler
-from handlers.styles import styles_handler, show_styles_cb, style_selected_cb, model_selected_cb
+from handlers.menu import menu_handler, tokens_handler
+from handlers.styles import styles_handler, show_styles_cb, style_selected_cb, model_selected_cb, use_token_cb, buy_generation_cb
 from handlers.upload import upload_conversation
 from handlers.clean import clean_photos_handler
-from handlers.payment import buy_handler, check_payments_job
-from handlers.payment import buy_tokens_handler
-from handlers.styles import use_token_cb, buy_generation_cb
-from handlers.menu import tokens_handler
+from handlers.payment import buy_handler, check_payments_job, buy_tokens_handler, buy_tokens_callback_handler
+
 from webhook_server import start_webhook_server
 
 logging.basicConfig(
@@ -76,20 +74,24 @@ async def main_async():
     application.add_handler(show_styles_cb)
     application.add_handler(style_selected_cb)
     application.add_handler(model_selected_cb)
-    # 🔥 НОВЫЕ КОЛБЭКИ
+    # Колбэки для жетонов
     application.add_handler(use_token_cb)
     application.add_handler(buy_generation_cb)
+    # Колбэк для покупки жетонов (inline-кнопка)
+    application.add_handler(buy_tokens_callback_handler)
+
     # Обработчик выбора пола
     application.add_handler(CallbackQueryHandler(gender_callback, pattern="^set_gender_"))
 
-    # Команда покупки
+    # Команда покупки одной генерации
     application.add_handler(buy_handler)
-    # 🔥 НОВАЯ КОМАНДА ДЛЯ ПАКЕТА
+    # Команда для покупки пакета жетонов
     application.add_handler(buy_tokens_handler)
 
-    # 🔥 НОВЫЙ ОБРАБОТЧИК ДЛЯ КНОПКИ "💎 Мои жетоны" (ДО основного MessageHandler)
+    # Обработчик кнопки "💎 Мои жетоны" (текстовая кнопка главного меню)
     application.add_handler(tokens_handler)
-    # Кнопки главного меню
+
+    # Кнопки главного меню (остальные текстовые кнопки)
     application.add_handler(MessageHandler(
         filters.Text([
             "📤 Загрузить фото",
@@ -102,7 +104,7 @@ async def main_async():
         handle_main_menu_buttons
     ))
 
-    # Обработчик очистки
+    # Обработчик очистки фото
     application.add_handler(clean_photos_handler)
 
     # Фоновая задача проверки платежей (каждые 15 секунд)

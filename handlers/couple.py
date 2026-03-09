@@ -31,11 +31,12 @@ COUPLE_STYLES = {
 
 # Промпты для пар
 COUPLE_PROMPTS = {
-    "couple_beach": "A romantic couple on a beach at sunset, holding hands, photorealistic, 8k, faces clearly visible",
-    "couple_wedding": "A wedding couple in a garden, bride in white dress, groom in tuxedo, photorealistic, 8k, faces clearly visible",
-    "couple_dinner": "A couple having a romantic dinner in a cozy restaurant, candlelight, photorealistic, 8k, faces clearly visible",
-    "couple_city": "A couple in love standing on a rooftop at night, city lights background, cinematic, photorealistic, 8k, faces clearly visible",
-    "couple_forest": "A couple walking in a sunlit forest, holding hands, warm lighting, photorealistic, 8k, faces clearly visible",
+    "couple_beach": "A romantic close-up portrait of a couple on a beach at sunset, holding hands, embracing, photorealistic, 8k, highly detailed faces, exact facial features as in reference images, faces clearly visible, sharp focus on faces, medium shot, warm sunset lighting",
+    "couple_wedding": "A romantic close-up wedding portrait of a couple in a garden, bride in elegant white dress, groom in classic tuxedo, photorealistic, 8k, highly detailed faces, exact facial features as in reference images, faces clearly visible, sharp focus on faces, soft romantic lighting, shallow depth of field, professional wedding photography style",
+    "couple_dinner": "A romantic close-up portrait of a couple having a romantic dinner in a cozy restaurant, candlelight, photorealistic, 8k, highly detailed faces, exact facial features as in reference images, faces clearly visible, sharp focus on faces, warm intimate lighting, professional photography style",
+    "couple_city": "A romantic close-up portrait of a couple in love standing on a rooftop at night, city lights background, cinematic, photorealistic, 8k, highly detailed faces, exact facial features as in reference images, faces clearly visible, sharp focus on faces, medium shot, professional night photography style",
+    "couple_forest": "A romantic close-up portrait of a couple walking in a sunlit forest, holding hands, warm lighting, photorealistic, 8k, highly detailed faces, exact facial features as in reference images, faces clearly visible, sharp focus on faces, medium shot, professional nature photography style, sun rays filtering through trees",
+
 }
 
 async def couple_start(update: Update, context: ContextTypes.DEFAULT_TYPE):

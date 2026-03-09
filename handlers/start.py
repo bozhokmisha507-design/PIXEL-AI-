@@ -5,6 +5,7 @@ from handlers.menu import get_main_menu_keyboard
 from config import Config
 import logging
 import json
+import asyncio  # Добавлен импорт
 
 logger = logging.getLogger(__name__)
 
@@ -49,6 +50,33 @@ async def send_welcome_message(chat_id: int, first_name: str, bot: Bot):
         logger.error(f"Ошибка отправки медиа: {e}")
         await bot.send_message(chat_id, text=welcome_text, parse_mode='Markdown', reply_markup=get_main_menu_keyboard())
 
+# ===== Фоновая задача для генерации парного фото =====
+async def generate_couple_in_background(user_id: int, bot: Bot, db, label: str):
+    """Генерирует парное фото в фоне и отправляет результат."""
+    try:
+        # Ждём немного, чтобы пользователь увидел сообщение об оплате
+        await asyncio.sleep(2)
+        
+        # Получаем данные заказа
+        order_data = await db.get_order_data(label)
+        if not order_data:
+            logger.error(f"❌ Нет данных для заказа {label}")
+            await bot.send_message(
+                chat_id=user_id,
+                text="❌ Не удалось найти данные для генерации. Пожалуйста, обратитесь в поддержку."
+            )
+            return
+
+        from handlers.couple import generate_couple_photo_from_data
+        await generate_couple_photo_from_data(user_id, bot, db, order_data)
+        
+    except Exception as e:
+        logger.error(f"❌ Ошибка в фоновой генерации: {e}", exc_info=True)
+        await bot.send_message(
+            chat_id=user_id,
+            text="❌ Произошла ошибка при генерации фото. Мы уже работаем над её исправлением."
+        )
+
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if context.args and context.args[0].startswith("payment_"):
         # Обычная генерация (уже работает)
@@ -73,15 +101,24 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return
 
-        # Если заказ ещё не обработан (редко, но может быть при задержке вебхука) – пытаемся сгенерировать
+        # Получаем данные заказа
         order_data = await db.get_order_data(label)
         if order_data:
-            # Импортируем функцию генерации (здесь, чтобы избежать циклических импортов)
-            from handlers.couple import generate_couple_photo_from_data
-            await generate_couple_photo_from_data(user_id, context.bot, db, order_data)
+            # Отправляем сообщение с индикатором ожидания
+            await update.message.reply_text(
+                "✅ Оплата получена! ⏳ *Начинаю генерацию вашего парного фото...*\n\n"
+                "Это займёт примерно 20–30 секунд. Пожалуйста, подождите.",
+                parse_mode='Markdown',
+                reply_markup=get_main_menu_keyboard()
+            )
+            
+            # Запускаем генерацию в фоне
+            asyncio.create_task(
+                generate_couple_in_background(user_id, context.bot, db, label)
+            )
             return
         else:
-            # Если данных нет (старая версия или ошибка) – просим начать диалог заново
+            # Если данных нет (старая версия) – просим начать диалог заново
             await update.message.reply_text(
                 "✅ Оплата получена! Теперь нажмите «👫 Парные фото» в главном меню и пройдите шаги заново. Ваше фото будет создано без повторной оплаты.",
                 reply_markup=get_main_menu_keyboard()

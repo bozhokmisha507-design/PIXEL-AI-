@@ -8,84 +8,47 @@ import logging
 logger = logging.getLogger(__name__)
 
 # ⚠️ СЮДА ВСТАВЛЯЙТЕ ЛЮБОЙ FILE_ID (фото, видео, GIF)
-WELCOME_MEDIA_FILE_ID = "AgACAgIAAxkBAAIImmmtLU3VKHz659Im62n7MzgSrT50AAKCFGsbLidoSTQu7GHRWg2NAQADAgADeQADOgQ"
+WELCOME_MEDIA_FILE_ID = "AgACAgIAAxkBAAIJrWmu461-3ELaxHLdZcKU79anbT35AAIEFWsbBDJ4SUnNG0WVV7UPAQADAgADeQADOgQ"
 
 async def send_welcome_message(chat_id: int, first_name: str, bot: Bot):
     """Отправляет приветственное медиа (фото/видео/GIF) с подписью и главным меню."""
     welcome_text = (
         f"🎨 *Привет, {first_name}!*\n\n"
         f"Добро пожаловать в *AI Фотосессия Бот*! 📸\n\n"
-        f"Вот примеры того, что мы можем создать — множество стилей на основе одного лица:\n\n"
-        f"1️⃣ Загрузи свои селфи (2-5 фото)\n"
-        f"2️⃣ Выбери стиль\n"
-        f"3️⃣ Получи готовую фотосессию!\n\n"
-        f"💎 *Экономь с жетонами!*\n"
-        f"Покупай пакет 20 жетонов за {Config.PRICE_20_TOKENS}₽ и трать их на генерации:\n"
-        f"• Gemini = 1 жетон\n"
-        f"• GPT Image High = 2 жетона\n"
-        f"• Парные фото = 1 жетон\n\n"
+        f"Вот что я умею:\n\n"
+        f"👤 *Одиночные фото*\n"
+        f"• Загрузи 2–5 своих селфи и выбери стиль\n"
+        f"• Gemini (базовое) – 38₽\n"
+        f"• GPT Image High (премиум) – 76₽\n\n"
+        f"👫 *Парные фото*\n"
+        f"• Загрузи фото мужчины и женщины, выбери стиль\n"
+        f"• Стоимость: 40₽ или 1 жетон\n\n"
+        f"💎 *Жетоны*\n"
+        f"• Пакет 20 жетонов – 700₽\n"
+        f"• Gemini = 1 жетон, GPT Image = 2 жетона, Парные фото = 1 жетон\n\n"
         f"👇 Жми на кнопки ниже и пробуй!"
     )
 
     try:
-        # Получаем информацию о файле по file_id
         file = await bot.get_file(WELCOME_MEDIA_FILE_ID)
         file_path = file.file_path
-
-        # Определяем тип по расширению файла
         if file_path:
             ext = file_path.split('.')[-1].lower() if '.' in file_path else ''
             if ext in ['jpg', 'jpeg', 'png', 'webp']:
-                await bot.send_photo(
-                    chat_id=chat_id,
-                    photo=WELCOME_MEDIA_FILE_ID,
-                    caption=welcome_text,
-                    parse_mode='Markdown',
-                    reply_markup=get_main_menu_keyboard()
-                )
+                await bot.send_photo(chat_id, photo=WELCOME_MEDIA_FILE_ID, caption=welcome_text, parse_mode='Markdown', reply_markup=get_main_menu_keyboard())
             elif ext in ['mp4', 'mov', 'avi', 'mkv']:
-                await bot.send_video(
-                    chat_id=chat_id,
-                    video=WELCOME_MEDIA_FILE_ID,
-                    caption=welcome_text,
-                    parse_mode='Markdown',
-                    reply_markup=get_main_menu_keyboard()
-                )
+                await bot.send_video(chat_id, video=WELCOME_MEDIA_FILE_ID, caption=welcome_text, parse_mode='Markdown', reply_markup=get_main_menu_keyboard())
             elif ext in ['gif']:
-                await bot.send_animation(
-                    chat_id=chat_id,
-                    animation=WELCOME_MEDIA_FILE_ID,
-                    caption=welcome_text,
-                    parse_mode='Markdown',
-                    reply_markup=get_main_menu_keyboard()
-                )
+                await bot.send_animation(chat_id, animation=WELCOME_MEDIA_FILE_ID, caption=welcome_text, parse_mode='Markdown', reply_markup=get_main_menu_keyboard())
             else:
-                await bot.send_photo(
-                    chat_id=chat_id,
-                    photo=WELCOME_MEDIA_FILE_ID,
-                    caption=welcome_text,
-                    parse_mode='Markdown',
-                    reply_markup=get_main_menu_keyboard()
-                )
+                await bot.send_photo(chat_id, photo=WELCOME_MEDIA_FILE_ID, caption=welcome_text, parse_mode='Markdown', reply_markup=get_main_menu_keyboard())
         else:
-            await bot.send_photo(
-                chat_id=chat_id,
-                photo=WELCOME_MEDIA_FILE_ID,
-                caption=welcome_text,
-                parse_mode='Markdown',
-                reply_markup=get_main_menu_keyboard()
-            )
+            await bot.send_photo(chat_id, photo=WELCOME_MEDIA_FILE_ID, caption=welcome_text, parse_mode='Markdown', reply_markup=get_main_menu_keyboard())
     except Exception as e:
         logger.error(f"Ошибка отправки медиа: {e}")
-        await bot.send_message(
-            chat_id=chat_id,
-            text=welcome_text,
-            parse_mode='Markdown',
-            reply_markup=get_main_menu_keyboard()
-        )
+        await bot.send_message(chat_id, text=welcome_text, parse_mode='Markdown', reply_markup=get_main_menu_keyboard())
 
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Обработчик команды /start."""
     if context.args and context.args[0].startswith("payment_"):
         label = context.args[0].replace("payment_", "")
         user_id = update.effective_user.id
@@ -122,8 +85,8 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     gender = await db.get_user_gender(user_id)
     if gender is None:
         keyboard = [
-            [InlineKeyboardButton("👨 Мужской", callback_data="set_gender_male")],
-            [InlineKeyboardButton("👩 Женский", callback_data="set_gender_female")]
+            [InlineKeyboardButton("🤵🏼‍♂️ Мужской", callback_data="set_gender_male")],
+            [InlineKeyboardButton("🤵🏼‍♀️ Женский", callback_data="set_gender_female")]
         ]
         await update.message.reply_text(
             "Пожалуйста, укажите ваш пол, чтобы мы могли подбирать стили правильно:",
@@ -152,14 +115,33 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message:
         return
     help_text = (
-        "📖 *Инструкция*\n\n"
-        "1. Загрузите свои селфи через кнопку «📤 Загрузить фото».\n"
-        "2. Выберите стиль фотосессии через кнопку «🖼️ Стили».\n"
-        "3. Для получения фото нажмите «💳 Купить генерацию» и оплатите.\n"
-        "4. После оплаты фото придёт автоматически.\n\n"
+        "📖 *Подробная инструкция*\n\n"
+        "**👤 Одиночные фото**\n"
+        "1. Нажми «📤 Загрузить фото» и отправь 2–5 своих селфи.\n"
+        "2. Нажми «🖼️ Стили» и выбери стиль.\n"
+        "3. Выбери модель: Gemini (базовое, 38₽) или GPT Image High (премиум, 76₽).\n"
+        "4. Оплати или используй жетон (если есть).\n\n"
+        "**👫 Парные фото**\n"
+        "1. Нажми «👫 Парные фото» в главном меню.\n"
+        "2. Загрузи фото мужчины, затем фото женщины.\n"
+        "3. Выбери стиль (пляж, свадьба, ужин и др.).\n"
+        "4. Оплати 40₽ или используй 1 жетон.\n\n"
+        "**💎 Жетоны**\n"
+        "• 20 жетонов = 700₽ (команда /buy20).\n"
+        "• Тратятся так: Gemini = 1 жетон, GPT Image = 2 жетона, Парные фото = 1 жетон.\n"
+        "• Баланс можно посмотреть по кнопке «💎 Мои жетоны».\n\n"
+        "**❓ Другие команды**\n"
+        "• /start – главное меню\n"
+        "• /help – эта инструкция\n"
+        "• /buy20 – купить 20 жетонов\n"
+        "• /styles – все доступные стили\n\n"
         "Если возникли вопросы, пишите super.mike.4@ya.ru."
     )
-    await update.message.reply_text(help_text, parse_mode='Markdown', reply_markup=get_main_menu_keyboard())
+    await update.message.reply_text(
+        help_text,
+        parse_mode='Markdown',
+        reply_markup=get_main_menu_keyboard()
+    )
 
 async def handle_main_menu_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message or not update.effective_user:
@@ -188,9 +170,7 @@ async def handle_main_menu_buttons(update: Update, context: ContextTypes.DEFAULT
 
 # ================== СЕКРЕТНАЯ КОМАНДА ДЛЯ ПОЛУЧЕНИЯ FILE_ID ==================
 WAITING_MEDIA = 1
-
-# Список разрешённых пользователей (укажите свой user_id)
-AUTHORIZED_USERS = [955206480]  # замените на ваш реальный user_id
+AUTHORIZED_USERS = [955206480]  # ваш user_id
 
 async def secret_get_link_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
@@ -208,7 +188,6 @@ async def secret_get_link_photo(update: Update, context: ContextTypes.DEFAULT_TY
     user_id = update.effective_user.id
     if user_id not in AUTHORIZED_USERS:
         return ConversationHandler.END
-
     file_id = update.message.photo[-1].file_id
     file = await context.bot.get_file(file_id)
     file_url = f"https://api.telegram.org/file/bot{context.bot.token}/{file.file_path}"
@@ -222,7 +201,6 @@ async def secret_get_link_video(update: Update, context: ContextTypes.DEFAULT_TY
     user_id = update.effective_user.id
     if user_id not in AUTHORIZED_USERS:
         return ConversationHandler.END
-
     file_id = update.message.video.file_id
     file = await context.bot.get_file(file_id)
     file_url = f"https://api.telegram.org/file/bot{context.bot.token}/{file.file_path}"
@@ -236,7 +214,6 @@ async def secret_get_link_animation(update: Update, context: ContextTypes.DEFAUL
     user_id = update.effective_user.id
     if user_id not in AUTHORIZED_USERS:
         return ConversationHandler.END
-
     file_id = update.message.animation.file_id
     file = await context.bot.get_file(file_id)
     file_url = f"https://api.telegram.org/file/bot{context.bot.token}/{file.file_path}"

@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 # Состояния диалога
 PHOTO_MALE, PHOTO_FEMALE, STYLE_SELECT, CONFIRM = range(4)
 
-# Цена парной генерации (можно вынести в config)
+# Цена парной генерации
 COUPLE_PRICE = 40
 # Стоимость в жетонах
 COUPLE_TOKEN_COST = 1
@@ -177,7 +177,8 @@ async def pay_with_money_callback(update: Update, context: ContextTypes.DEFAULT_
             paymentType="AC",
             sum=amount,
             label=label,
-            successURL=f"https://t.me/bma3_bot?start=couple_{label}"
+            # ИСПРАВЛЕНО: убран лишний префикс couple_
+            successURL=f"https://t.me/bma3_bot?start={label}"
         )
         payment_url = quickpay.redirected_url
     except Exception as e:

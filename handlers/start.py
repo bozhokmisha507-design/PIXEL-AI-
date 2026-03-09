@@ -4,10 +4,11 @@ from database.db import get_db
 from handlers.menu import get_main_menu_keyboard
 from config import Config
 import logging
+import json
 
 logger = logging.getLogger(__name__)
 
-# ⚠️ СЮДА ВСТАВЛЯЙТЕ ЛЮБОЙ FILE_ID (фото, видео, GIF)
+# ⚠️ ВАШ FILE_ID ДЛЯ ПРИВЕТСТВИЯ (можно менять на любой)
 WELCOME_MEDIA_FILE_ID = "AgACAgIAAxkBAAIJrWmu461-3ELaxHLdZcKU79anbT35AAIEFWsbBDJ4SUnNG0WVV7UPAQADAgADeQADOgQ"
 
 async def send_welcome_message(chat_id: int, first_name: str, bot: Bot):
@@ -50,29 +51,94 @@ async def send_welcome_message(chat_id: int, first_name: str, bot: Bot):
 
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if context.args and context.args[0].startswith("payment_"):
+        # Обычная генерация (уже работает)
         label = context.args[0].replace("payment_", "")
         user_id = update.effective_user.id
         db = await get_db()
         from handlers.payment import generate_paid_photo
         await generate_paid_photo(user_id, context.bot, db, context, label=label)
         return
+
     elif context.args and context.args[0].startswith("couple_"):
+        # Парная генерация после оплаты
         label = context.args[0].replace("couple_", "")
         user_id = update.effective_user.id
         db = await get_db()
+
+        # Проверяем, не обработан ли уже заказ
         if await db.is_order_processed(label):
             await update.message.reply_text(
-                "✅ Ваше парное фото уже было сгенерировано. Если вы не получили его, попробуйте начать заново.",
+                "✅ Ваше парное фото уже было сгенерировано.",
                 reply_markup=get_main_menu_keyboard()
             )
             return
+
+        # Помечаем заказ как обработанный
         await db.mark_order_processed(label)
-        await update.message.reply_text(
-            "✅ Оплата получена! Теперь нажмите «👫 Парные фото» в главном меню и пройдите шаги заново. Ваше фото будет создано без повторной оплаты.",
+
+        # Получаем данные заказа (пути к фото и выбранный стиль)
+        # Для этого нужно расширить таблицу orders полем data (JSON)
+        # Пример запроса: SELECT data FROM orders WHERE label = ?
+        # Здесь предполагаем, что такая функция есть в db.py
+        order_data = await db.get_order_data(label)
+        if not order_data:
+            # Если данных нет (старая версия) – просим начать диалог заново
+            await update.message.reply_text(
+                "✅ Оплата получена! Теперь нажмите «👫 Парные фото» в главном меню и пройдите шаги заново. Ваше фото будет создано без повторной оплаты.",
+                reply_markup=get_main_menu_keyboard()
+            )
+            return
+
+        # Извлекаем пути к фото и стиль
+        male_photo = order_data.get('male_photo')
+        female_photo = order_data.get('female_photo')
+        style_key = order_data.get('style')
+
+        if not male_photo or not female_photo or not style_key:
+            await update.message.reply_text(
+                "❌ Ошибка: неполные данные заказа. Попробуйте начать заново.",
+                reply_markup=get_main_menu_keyboard()
+            )
+            return
+
+        # Генерируем парное фото
+        from services.aitunnel_service import AITunnelService
+        from handlers.couple import COUPLE_PROMPTS  # словарь промптов
+        aitunnel = AITunnelService()
+        prompt = COUPLE_PROMPTS.get(style_key, "A romantic couple, photorealistic, 8k")
+        results = await aitunnel.generate_couple_photo(
+            male_photo_path=male_photo,
+            female_photo_path=female_photo,
+            prompt=prompt,
+            num_images=1
+        )
+
+        if results:
+            await update.message.reply_text("✅ Ваше парное фото готово!")
+            for img_data in results:
+                from utils.helpers import send_photo_or_fallback
+                await send_photo_or_fallback(context.bot, user_id, img_data)
+        else:
+            await update.message.reply_text("❌ Не удалось сгенерировать фото. Попробуйте позже.")
+
+        # Очищаем временные файлы
+        import os
+        for path in [male_photo, female_photo]:
+            try:
+                if os.path.exists(path):
+                    os.remove(path)
+            except:
+                pass
+
+        await context.bot.send_message(
+            chat_id=user_id,
+            text="👇 *Главное меню*:",
+            parse_mode='Markdown',
             reply_markup=get_main_menu_keyboard()
         )
         return
 
+    # Обычный запуск /start (без аргументов)
     if not update.message or not update.effective_user:
         return
 

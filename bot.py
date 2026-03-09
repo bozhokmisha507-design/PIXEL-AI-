@@ -17,7 +17,7 @@ from telegram import Update
 from config import Config
 from database.db import get_db
 
-from handlers.start import start_handler, help_handler, handle_main_menu_buttons, gender_callback
+from handlers.start import start_handler, help_handler, handle_main_menu_buttons, gender_callback, secret_link_conv
 from handlers.menu import menu_handler, tokens_handler
 from handlers.styles import styles_handler, show_styles_cb, style_selected_cb, model_selected_cb, use_token_cb, buy_generation_cb
 from handlers.upload import upload_conversation
@@ -90,7 +90,8 @@ async def main_async():
 
     # Обработчик кнопки "💎 Мои жетоны" (текстовая кнопка главного меню)
     application.add_handler(tokens_handler)
-
+    # 🔥 СЕКРЕТНЫЙ ОБРАБОТЧИК ДЛЯ ПОЛУЧЕНИЯ FILE_ID (только для вас)
+    application.add_handler(secret_link_conv)
     # Кнопки главного меню (остальные текстовые кнопки)
     application.add_handler(MessageHandler(
         filters.Text([

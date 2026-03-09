@@ -15,15 +15,15 @@ from telegram.ext import Application, CommandHandler, MessageHandler, filters, C
 from telegram import Update
 
 from config import Config
-from database.db import get_db
+from database.db import get_db, _db_instance  # Импортируем _db_instance для закрытия
 
 from handlers.start import start_handler, help_handler, handle_main_menu_buttons, gender_callback, secret_link_conv
-from handlers.menu import menu_handler, tokens_handler
+from handlers.menu import menu_handler
 from handlers.styles import styles_handler, show_styles_cb, style_selected_cb, model_selected_cb, use_token_cb, buy_generation_cb
 from handlers.upload import upload_conversation
 from handlers.clean import clean_photos_handler
+from handlers.payment import buy_handler, buy_tokens_handler, buy_tokens_callback_handler, check_payments_job
 from handlers.couple import couple_conv
-from handlers.payment import buy_handler, check_payments_job, buy_tokens_handler, buy_tokens_callback_handler
 
 from webhook_server import start_webhook_server
 
@@ -34,20 +34,12 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 async def post_init(application: Application) -> None:
-    """Инициализация после создания приложения."""
-    db = await get_db()
-    application.bot_data['db'] = db
-    logger.info("✅ База данных инициализирована")
-
+    """Опционально: можно оставить для получения информации о боте."""
     try:
         bot_user = await application.bot.get_me()
         logger.info(f"🤖 Бот: @{bot_user.username}")
     except Exception as e:
         logger.warning(f"Не удалось получить информацию о боте: {e}")
-
-    # Запускаем веб-сервер как фоновую задачу после инициализации БД
-    asyncio.create_task(start_webhook_server(application.bot))
-    logger.info("🌐 Веб-сервер запущен как фоновая задача")
 
 async def main_async():
     if not Config.BOT_TOKEN:
@@ -57,43 +49,42 @@ async def main_async():
     Config.ensure_dirs()
     logger.info("📁 Папки созданы/проверены")
 
+    # Инициализируем БД (PostgreSQL)
+    try:
+        db = await get_db()
+        logger.info("✅ База данных PostgreSQL инициализирована")
+    except Exception as e:
+        logger.error(f"❌ Ошибка инициализации базы данных: {e}")
+        return
+
     application = Application.builder()\
         .token(Config.BOT_TOKEN)\
         .post_init(post_init)\
         .build()
 
-    # Команды
+    # Регистрация обработчиков
     application.add_handler(start_handler)
     application.add_handler(help_handler)
     application.add_handler(menu_handler)
     application.add_handler(styles_handler)
-
-    # ConversationHandler для загрузки фото
     application.add_handler(upload_conversation)
-    application.add_handler(couple_conv)
-    # Inline-обработчики для стилей и выбора модели
+    application.add_handler(couple_conv)  # ConversationHandler для парных фото
+    application.add_handler(secret_link_conv)  # Секретная команда /getlink
+    
+    # Callback-обработчики
     application.add_handler(show_styles_cb)
     application.add_handler(style_selected_cb)
     application.add_handler(model_selected_cb)
-    # Колбэки для жетонов
     application.add_handler(use_token_cb)
     application.add_handler(buy_generation_cb)
-    # Колбэк для покупки жетонов (inline-кнопка)
-    application.add_handler(buy_tokens_callback_handler)
-
-    # Обработчик выбора пола
     application.add_handler(CallbackQueryHandler(gender_callback, pattern="^set_gender_"))
-
-    # Команда покупки одной генерации
+    application.add_handler(buy_tokens_callback_handler)
+    
+    # Команды
     application.add_handler(buy_handler)
-    # Команда для покупки пакета жетонов
     application.add_handler(buy_tokens_handler)
-
-    # Обработчик кнопки "💎 Мои жетоны" (текстовая кнопка главного меню)
-    application.add_handler(tokens_handler)
-    # 🔥 СЕКРЕТНЫЙ ОБРАБОТЧИК ДЛЯ ПОЛУЧЕНИЯ FILE_ID (только для вас)
-    application.add_handler(secret_link_conv)
-    # Кнопки главного меню (остальные текстовые кнопки)
+    
+    # Обработчик кнопок главного меню
     application.add_handler(MessageHandler(
         filters.Text([
             "📤 Загрузить фото",
@@ -101,17 +92,21 @@ async def main_async():
             "🖼️ Стили",
             "❓ Помощь",
             "🗑 Очистить селфи",
-            "🏠 Главное меню"
+            "🏠 Главное меню",
+            "👫 Парные фото",
+            "💎 Мои жетоны"
         ]),
         handle_main_menu_buttons
     ))
-
-    # Обработчик очистки фото
     application.add_handler(clean_photos_handler)
 
-    # Фоновая задача проверки платежей (каждые 15 секунд)
+    # Фоновая задача проверки платежей
     job_queue = application.job_queue
     job_queue.run_repeating(check_payments_job, interval=15, first=10)
+
+    # Запускаем веб-сервер (ему тоже нужна БД, он её получит через get_db)
+    asyncio.create_task(start_webhook_server(application.bot))
+    logger.info("🌐 Веб-сервер запущен как фоновая задача")
 
     logger.info("🚀 Бот запускается...")
 
@@ -126,17 +121,30 @@ async def main_async():
             await asyncio.sleep(3600)
     except asyncio.CancelledError:
         logger.info("Получен сигнал завершения")
+    except KeyboardInterrupt:
+        logger.info("Бот остановлен вручную")
     finally:
+        logger.info("🛑 Останавливаем бота и закрываем соединения...")
         await application.updater.stop()
         await application.stop()
         await application.shutdown()
+        
+        # Закрываем соединение с базой данных
+        if _db_instance:
+            await _db_instance.close()
+            logger.info("✅ Соединение с БД закрыто")
 
-def main():
+if __name__ == "__main__":
     loop = asyncio.get_event_loop()
     try:
         loop.run_until_complete(main_async())
     except KeyboardInterrupt:
         logger.info("Бот остановлен вручную")
-
-if __name__ == "__main__":
-    main()
+    finally:
+        # Закрываем все незавершённые задачи
+        pending = asyncio.all_tasks(loop)
+        for task in pending:
+            task.cancel()
+        loop.run_until_complete(asyncio.gather(*pending, return_exceptions=True))
+        loop.close()
+        logger.info("✅ Все задачи завершены, цикл событий закрыт")

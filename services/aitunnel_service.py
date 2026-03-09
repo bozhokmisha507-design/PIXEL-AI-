@@ -235,6 +235,11 @@ class AITunnelService:
                         "Authorization": f"Bearer {self.api_key}",
                         "Content-Type": "application/json"
                     }
+            
+                    # ✅ Добавляем инструкцию для горизонтального формата
+                    horizontal_instruction = " Landscape orientation, horizontal composition, aspect ratio 16:9, wide format."
+                    full_prompt = prompt + horizontal_instruction
+            
                     payload = {
                         "model": Config.AITUNNEL_IMAGE_MODEL,
                         "messages": [
@@ -243,7 +248,7 @@ class AITunnelService:
                                 "content": [
                                     {"type": "image_url", "image_url": {"url": male_url}},
                                     {"type": "image_url", "image_url": {"url": female_url}},
-                                    {"type": "text", "text": prompt}
+                                    {"type": "text", "text": full_prompt}  # ← используем full_prompt
                                 ]
                             }
                         ],

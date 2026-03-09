@@ -15,7 +15,7 @@ from telegram.ext import Application, CommandHandler, MessageHandler, filters, C
 from telegram import Update
 
 from config import Config
-from database.db import get_db, _db_instance  # Импортируем _db_instance для закрытия
+from database.db import get_db, _db_instance
 
 from handlers.start import start_handler, help_handler, handle_main_menu_buttons, gender_callback, secret_link_conv
 from handlers.menu import menu_handler
@@ -68,8 +68,8 @@ async def main_async():
     application.add_handler(menu_handler)
     application.add_handler(styles_handler)
     application.add_handler(upload_conversation)
-    application.add_handler(couple_conv)  # ConversationHandler для парных фото
-    application.add_handler(secret_link_conv)  # Секретная команда /getlink
+    application.add_handler(couple_conv)
+    application.add_handler(secret_link_conv)
     
     # Callback-обработчики
     application.add_handler(show_styles_cb)
@@ -84,7 +84,7 @@ async def main_async():
     application.add_handler(buy_handler)
     application.add_handler(buy_tokens_handler)
     
-    # Обработчик кнопок главного меню
+    # Обработчик кнопок главного меню (все кнопки)
     application.add_handler(MessageHandler(
         filters.Text([
             "📤 Загрузить фото",
@@ -104,19 +104,17 @@ async def main_async():
     job_queue = application.job_queue
     job_queue.run_repeating(check_payments_job, interval=15, first=10)
 
-    # Запускаем веб-сервер (ему тоже нужна БД, он её получит через get_db)
+    # Запускаем веб-сервер
     asyncio.create_task(start_webhook_server(application.bot))
     logger.info("🌐 Веб-сервер запущен как фоновая задача")
 
     logger.info("🚀 Бот запускается...")
 
-    # Ручной запуск (без run_polling, чтобы избежать конфликта циклов)
     await application.initialize()
     await application.start()
     await application.updater.start_polling()
 
     try:
-        # Бесконечное ожидание
         while True:
             await asyncio.sleep(3600)
     except asyncio.CancelledError:
@@ -129,7 +127,6 @@ async def main_async():
         await application.stop()
         await application.shutdown()
         
-        # Закрываем соединение с базой данных
         if _db_instance:
             await _db_instance.close()
             logger.info("✅ Соединение с БД закрыто")
@@ -141,7 +138,6 @@ if __name__ == "__main__":
     except KeyboardInterrupt:
         logger.info("Бот остановлен вручную")
     finally:
-        # Закрываем все незавершённые задачи
         pending = asyncio.all_tasks(loop)
         for task in pending:
             task.cancel()

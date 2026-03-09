@@ -5,7 +5,7 @@ from handlers.menu import get_main_menu_keyboard
 from config import Config
 import logging
 import json
-import asyncio  # Добавлен импорт
+import asyncio
 
 logger = logging.getLogger(__name__)
 
@@ -50,6 +50,22 @@ async def send_welcome_message(chat_id: int, first_name: str, bot: Bot):
         logger.error(f"Ошибка отправки медиа: {e}")
         await bot.send_message(chat_id, text=welcome_text, parse_mode='Markdown', reply_markup=get_main_menu_keyboard())
 
+# ===== Функция для показа баланса жетонов =====
+async def my_tokens_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Показывает баланс жетонов пользователя."""
+    user_id = update.effective_user.id
+    db = await get_db()
+    tokens = await db.get_user_tokens(user_id)
+    
+    await update.message.reply_text(
+        f"💎 *Ваш баланс жетонов:* {tokens}\n\n"
+        f"• Gemini = 1 жетон\n"
+        f"• GPT Image High = 2 жетона\n"
+        f"• Парные фото = 1 жетон",
+        parse_mode='Markdown',
+        reply_markup=get_main_menu_keyboard()
+    )
+
 # ===== Фоновая задача для генерации парного фото =====
 async def generate_couple_in_background(user_id: int, bot: Bot, db, label: str):
     """Генерирует парное фото в фоне и отправляет результат."""
@@ -79,7 +95,7 @@ async def generate_couple_in_background(user_id: int, bot: Bot, db, label: str):
 
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if context.args and context.args[0].startswith("payment_"):
-        # Обычная генерация (уже работает)
+        # Обычная генерация
         label = context.args[0].replace("payment_", "")
         user_id = update.effective_user.id
         db = await get_db()
@@ -93,7 +109,6 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         user_id = update.effective_user.id
         db = await get_db()
 
-        # Проверяем, не обработан ли уже заказ
         if await db.is_order_processed(label):
             await update.message.reply_text(
                 "✅ Ваше парное фото уже было сгенерировано. Проверьте предыдущие сообщения.",
@@ -101,10 +116,8 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return
 
-        # Получаем данные заказа
         order_data = await db.get_order_data(label)
         if order_data:
-            # Отправляем сообщение с индикатором ожидания
             await update.message.reply_text(
                 "✅ Оплата получена! ⏳ *Начинаю генерацию вашего парного фото...*\n\n"
                 "Это займёт примерно 20–30 секунд. Пожалуйста, подождите.",
@@ -112,13 +125,11 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 reply_markup=get_main_menu_keyboard()
             )
             
-            # Запускаем генерацию в фоне
             asyncio.create_task(
                 generate_couple_in_background(user_id, context.bot, db, label)
             )
             return
         else:
-            # Если данных нет (старая версия) – просим начать диалог заново
             await update.message.reply_text(
                 "✅ Оплата получена! Теперь нажмите «👫 Парные фото» в главном меню и пройдите шаги заново. Ваше фото будет создано без повторной оплаты.",
                 reply_markup=get_main_menu_keyboard()
@@ -197,6 +208,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 async def handle_main_menu_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Обработчик всех кнопок главного меню."""
     if not update.message or not update.effective_user:
         return
     text = update.message.text
@@ -220,6 +232,8 @@ async def handle_main_menu_buttons(update: Update, context: ContextTypes.DEFAULT
     elif text == "👫 Парные фото":
         from handlers.couple import couple_start
         await couple_start(update, context)
+    elif text == "💎 Мои жетоны":
+        await my_tokens_command(update, context)
 
 # ================== СЕКРЕТНАЯ КОМАНДА ДЛЯ ПОЛУЧЕНИЯ FILE_ID ==================
 WAITING_MEDIA = 1

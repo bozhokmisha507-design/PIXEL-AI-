@@ -133,8 +133,12 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
         else:
             await update.message.reply_text(
-                "✅ Оплата получена! Теперь нажмите «👫 Парные фото» в главном меню и пройдите шаги заново. Ваше фото будет создано без повторной оплаты.",
+                "✅ Оплата получена! Идёт подготовка вашего фото, пожалуйста, подождите...",
                 reply_markup=get_main_menu_keyboard()
+            )
+            # Запускаем фоновую задачу, которая попробует получить данные из БД и сгенерировать фото
+            asyncio.create_task(
+             generate_couple_in_background(user_id, context.bot, db, label)
             )
             return
 

@@ -8,7 +8,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 # ⚠️ СЮДА ВСТАВЛЯЙТЕ ЛЮБОЙ FILE_ID (фото, видео, GIF)
-WELCOME_MEDIA_FILE_ID = "AgACAgIAAxkBAAIJlWmuwe2d_VJN3RWKwOYJyf6MXp_qAAJoEmsbBDJ4SZbV4C13O3nMAQADAgADeQADOgQ"
+WELCOME_MEDIA_FILE_ID = "AgACAgIAAxkBAAIImmmtLU3VKHz659Im62n7MzgSrT50AAKCFGsbLidoSTQu7GHRWg2NAQADAgADeQADOgQ"
 
 async def send_welcome_message(chat_id: int, first_name: str, bot: Bot):
     """Отправляет приветственное медиа (фото/видео/GIF) с подписью и главным меню."""
@@ -22,7 +22,8 @@ async def send_welcome_message(chat_id: int, first_name: str, bot: Bot):
         f"💎 *Экономь с жетонами!*\n"
         f"Покупай пакет 20 жетонов за {Config.PRICE_20_TOKENS}₽ и трать их на генерации:\n"
         f"• Gemini = 1 жетон\n"
-        f"• GPT Image High = 2 жетона\n\n"
+        f"• GPT Image High = 2 жетона\n"
+        f"• Парные фото = 1 жетон\n\n"
         f"👇 Жми на кнопки ниже и пробуй!"
     )
 
@@ -35,7 +36,6 @@ async def send_welcome_message(chat_id: int, first_name: str, bot: Bot):
         if file_path:
             ext = file_path.split('.')[-1].lower() if '.' in file_path else ''
             if ext in ['jpg', 'jpeg', 'png', 'webp']:
-                # Это фото
                 await bot.send_photo(
                     chat_id=chat_id,
                     photo=WELCOME_MEDIA_FILE_ID,
@@ -44,7 +44,6 @@ async def send_welcome_message(chat_id: int, first_name: str, bot: Bot):
                     reply_markup=get_main_menu_keyboard()
                 )
             elif ext in ['mp4', 'mov', 'avi', 'mkv']:
-                # Это видео
                 await bot.send_video(
                     chat_id=chat_id,
                     video=WELCOME_MEDIA_FILE_ID,
@@ -53,7 +52,6 @@ async def send_welcome_message(chat_id: int, first_name: str, bot: Bot):
                     reply_markup=get_main_menu_keyboard()
                 )
             elif ext in ['gif']:
-                # Это GIF (анимация)
                 await bot.send_animation(
                     chat_id=chat_id,
                     animation=WELCOME_MEDIA_FILE_ID,
@@ -62,7 +60,6 @@ async def send_welcome_message(chat_id: int, first_name: str, bot: Bot):
                     reply_markup=get_main_menu_keyboard()
                 )
             else:
-                # Неизвестный тип – пробуем отправить как фото
                 await bot.send_photo(
                     chat_id=chat_id,
                     photo=WELCOME_MEDIA_FILE_ID,
@@ -71,7 +68,6 @@ async def send_welcome_message(chat_id: int, first_name: str, bot: Bot):
                     reply_markup=get_main_menu_keyboard()
                 )
         else:
-            # Нет пути – пробуем как фото
             await bot.send_photo(
                 chat_id=chat_id,
                 photo=WELCOME_MEDIA_FILE_ID,
@@ -81,7 +77,6 @@ async def send_welcome_message(chat_id: int, first_name: str, bot: Bot):
             )
     except Exception as e:
         logger.error(f"Ошибка отправки медиа: {e}")
-        # Если не получилось, отправляем просто текст
         await bot.send_message(
             chat_id=chat_id,
             text=welcome_text,
@@ -98,6 +93,22 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         from handlers.payment import generate_paid_photo
         await generate_paid_photo(user_id, context.bot, db, context, label=label)
         return
+    elif context.args and context.args[0].startswith("couple_"):
+        label = context.args[0].replace("couple_", "")
+        user_id = update.effective_user.id
+        db = await get_db()
+        if await db.is_order_processed(label):
+            await update.message.reply_text(
+                "✅ Ваше парное фото уже было сгенерировано. Если вы не получили его, попробуйте начать заново.",
+                reply_markup=get_main_menu_keyboard()
+            )
+            return
+        await db.mark_order_processed(label)
+        await update.message.reply_text(
+            "✅ Оплата получена! Теперь нажмите «👫 Парные фото» в главном меню и пройдите шаги заново. Ваше фото будет создано без повторной оплаты.",
+            reply_markup=get_main_menu_keyboard()
+        )
+        return
 
     if not update.message or not update.effective_user:
         return
@@ -111,8 +122,8 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     gender = await db.get_user_gender(user_id)
     if gender is None:
         keyboard = [
-            [InlineKeyboardButton("🤵🏼‍♂️ Мужской", callback_data="set_gender_male")],
-            [InlineKeyboardButton("🤵🏼‍♀️ Женский", callback_data="set_gender_female")]
+            [InlineKeyboardButton("👨 Мужской", callback_data="set_gender_male")],
+            [InlineKeyboardButton("👩 Женский", callback_data="set_gender_female")]
         ]
         await update.message.reply_text(
             "Пожалуйста, укажите ваш пол, чтобы мы могли подбирать стили правильно:",
@@ -171,6 +182,9 @@ async def handle_main_menu_buttons(update: Update, context: ContextTypes.DEFAULT
         await clean_photos_command(update, context)
     elif text == "🏠 Главное меню":
         await start_command(update, context)
+    elif text == "👫 Парные фото":
+        from handlers.couple import couple_start
+        await couple_start(update, context)
 
 # ================== СЕКРЕТНАЯ КОМАНДА ДЛЯ ПОЛУЧЕНИЯ FILE_ID ==================
 WAITING_MEDIA = 1
@@ -179,7 +193,6 @@ WAITING_MEDIA = 1
 AUTHORIZED_USERS = [955206480]  # замените на ваш реальный user_id
 
 async def secret_get_link_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Начало секретной команды /getlink – проверка авторизации."""
     user_id = update.effective_user.id
     if user_id not in AUTHORIZED_USERS:
         await update.message.reply_text("Команда не найдена.")
@@ -192,7 +205,6 @@ async def secret_get_link_start(update: Update, context: ContextTypes.DEFAULT_TY
     return WAITING_MEDIA
 
 async def secret_get_link_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Обработка полученного фото."""
     user_id = update.effective_user.id
     if user_id not in AUTHORIZED_USERS:
         return ConversationHandler.END
@@ -207,7 +219,6 @@ async def secret_get_link_photo(update: Update, context: ContextTypes.DEFAULT_TY
     return ConversationHandler.END
 
 async def secret_get_link_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Обработка полученного видео."""
     user_id = update.effective_user.id
     if user_id not in AUTHORIZED_USERS:
         return ConversationHandler.END
@@ -222,7 +233,6 @@ async def secret_get_link_video(update: Update, context: ContextTypes.DEFAULT_TY
     return ConversationHandler.END
 
 async def secret_get_link_animation(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Обработка полученной анимации (GIF)."""
     user_id = update.effective_user.id
     if user_id not in AUTHORIZED_USERS:
         return ConversationHandler.END
@@ -237,11 +247,9 @@ async def secret_get_link_animation(update: Update, context: ContextTypes.DEFAUL
     return ConversationHandler.END
 
 async def secret_get_link_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Отмена операции."""
     await update.message.reply_text("Операция отменена.")
     return ConversationHandler.END
 
-# Создаём ConversationHandler с поддержкой фото, видео и анимаций
 secret_link_conv = ConversationHandler(
     entry_points=[CommandHandler("getlink", secret_get_link_start)],
     states={

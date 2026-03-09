@@ -22,6 +22,7 @@ from handlers.menu import menu_handler, tokens_handler
 from handlers.styles import styles_handler, show_styles_cb, style_selected_cb, model_selected_cb, use_token_cb, buy_generation_cb
 from handlers.upload import upload_conversation
 from handlers.clean import clean_photos_handler
+from handlers.couple import couple_conv
 from handlers.payment import buy_handler, check_payments_job, buy_tokens_handler, buy_tokens_callback_handler
 
 from webhook_server import start_webhook_server
@@ -69,7 +70,7 @@ async def main_async():
 
     # ConversationHandler для загрузки фото
     application.add_handler(upload_conversation)
-
+    application.add_handler(couple_conv)
     # Inline-обработчики для стилей и выбора модели
     application.add_handler(show_styles_cb)
     application.add_handler(style_selected_cb)

@@ -1,16 +1,18 @@
 from telegram import ReplyKeyboardMarkup, KeyboardButton, Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes, CommandHandler, MessageHandler, filters
 from database.db import get_db
+from config import Config
 import logging
 
 logger = logging.getLogger(__name__)
 
 def get_main_menu_keyboard():
+    """Главное меню с двумя колонками: левая колонка, правая колонка."""
     buttons = [
-        [KeyboardButton("📤 Загрузить фото"), KeyboardButton("💳 Купить генерацию")],
-        [KeyboardButton("🖼️ Стили"), KeyboardButton("❓ Помощь")],
-        [KeyboardButton("💎 Мои жетоны"), KeyboardButton("🗑 Очистить селфи")],
-        [KeyboardButton("🏠 Главное меню")]
+        [KeyboardButton("📤 Загрузить фото"), KeyboardButton("👫 Парные фото")],
+        [KeyboardButton("🖼️ Стили"), KeyboardButton("💎 Мои жетоны")],
+        [KeyboardButton("💳 Купить генерацию"), KeyboardButton("🏠 Главное меню")],
+        [KeyboardButton("🗑 Очистить селфи"), KeyboardButton("❓ Помощь")]
     ]
     return ReplyKeyboardMarkup(buttons, resize_keyboard=True)
 
@@ -28,17 +30,17 @@ async def tokens_info_command(update: Update, context: ContextTypes.DEFAULT_TYPE
 
     text = (
         f"💎 *Ваши жетоны*: {tokens}\n\n"
-        "Gemini = 1 жетон\n"
-        "GPT Image High = 2 жетона\n\n"
+        "**Как тратить жетоны:**\n"
+        "• Gemini (базовое) = 1 жетон\n"
+        "• GPT Image High (премиум) = 2 жетона\n"
+        "• Парные фото = 1 жетон\n\n"
+        "**Купить пакет 20 жетонов:** /buy20"
     )
-    # Создаём inline-кнопку для покупки
     keyboard = [[InlineKeyboardButton("💎 Купить жетоны", callback_data="buy_tokens")]]
-    reply_markup = InlineKeyboardMarkup(keyboard)
-
     await update.message.reply_text(
         text,
         parse_mode='Markdown',
-        reply_markup=reply_markup
+        reply_markup=InlineKeyboardMarkup(keyboard)
     )
     # Возвращаем главное меню (чтобы пользователь мог продолжить)
     await context.bot.send_message(

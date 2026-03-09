@@ -136,7 +136,7 @@ async def buy_tokens_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
     user_id = query.from_user.id
     await send_tokens_purchase_message(user_id, context)
 
-# ---------- Фоновая проверка платежей (расширена для пакетов) ----------
+# ---------- Фоновая проверка платежей (расширена для пакетов и парных фото) ----------
 async def check_payments_job(context: ContextTypes.DEFAULT_TYPE):
     access_token = Config.YOOMONEY_ACCESS_TOKEN
     if not access_token:
@@ -167,6 +167,12 @@ async def check_payments_job(context: ContextTypes.DEFAULT_TYPE):
                         await context.bot.send_message(
                             chat_id=user_id,
                             text="✅ Вам начислено 20 жетонов! Используйте их при генерации."
+                        )
+                    elif label.startswith("couple_"):
+                        # Парная генерация – оплата прошла, но фото будет сгенерировано при возврате пользователя
+                        await context.bot.send_message(
+                            chat_id=user_id,
+                            text="✅ Оплата парной генерации получена! Вернитесь в бота и нажмите /start, чтобы получить фото."
                         )
                     else:
                         # Обычная генерация
@@ -202,6 +208,15 @@ async def handle_yoomoney_notification(data: dict, bot: Bot, db):
             )
         except Exception as e:
             logger.error(f"Ошибка начисления жетонов: {e}")
+    elif label.startswith("couple_"):
+        try:
+            user_id = int(label.split('_')[1])
+            await bot.send_message(
+                chat_id=user_id,
+                text="✅ Оплата парной генерации получена! Вернитесь в бота и нажмите /start, чтобы получить фото."
+            )
+        except Exception as e:
+            logger.error(f"Ошибка при обработке парной оплаты: {e}")
     else:
         try:
             user_id = int(label.split('_')[1])

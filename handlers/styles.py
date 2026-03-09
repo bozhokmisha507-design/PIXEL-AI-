@@ -1,8 +1,10 @@
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, Bot
 from telegram.ext import ContextTypes, CommandHandler, CallbackQueryHandler
 from config import Config
 from handlers.menu import get_main_menu_keyboard
 from database.db import get_db
+from services.aitunnel_service import AITunnelService
+from utils.helpers import send_photo_or_fallback
 import logging
 import aiohttp
 
@@ -111,22 +113,129 @@ async def model_selected_callback(update: Update, context: ContextTypes.DEFAULT_
     choice = query.data.replace("select_model_", "")
     context.user_data['selected_model'] = choice
 
+    db = await get_db()
+    tokens = await db.get_user_tokens(user_id)
+
     price = Config.PRICE_PER_GENERATION if choice == "gemini" else Config.PRICE_PREMIUM
     model_name = "Gemini" if choice == "gemini" else "GPT Image High"
 
+    token_cost = Config.TOKEN_COST_GEMINI if choice == "gemini" else Config.TOKEN_COST_GPT
+
+    # Формируем клавиатуру
+    keyboard = []
+    if tokens >= token_cost:
+        keyboard.append([InlineKeyboardButton(
+            f"💎 Использовать жетоны ({token_cost} шт., у вас {tokens})",
+            callback_data="use_token"
+        )])
+    keyboard.append([InlineKeyboardButton(f"💳 Купить за {price}₽", callback_data="buy_generation")])
+
     await query.edit_message_text(
-        f"✅ Выбрано качество: {model_name} – {price}₽\n\n"
-        f"Теперь нажми «💳 Купить генерацию» для оплаты.",
-        parse_mode='Markdown'
+        f"✅ Выбрано качество: {model_name}\n"
+        f"Цена: {price}₽ или {token_cost} жетон(ов).\n\n"
+        "Как хотите получить фото?",
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+
+async def use_token_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    if query is None:
+        return
+    await query.answer()
+
+    user_id = update.effective_user.id
+    db = await get_db()
+
+    style_key = context.user_data.get('selected_style')
+    model_choice = context.user_data.get('selected_model', 'gemini')
+    if not style_key:
+        await query.edit_message_text("❌ Сначала выберите стиль.")
+        return
+
+    token_cost = Config.TOKEN_COST_GEMINI if model_choice == "gemini" else Config.TOKEN_COST_GPT
+
+    if not await db.use_tokens(user_id, token_cost):
+        await query.edit_message_text("❌ Недостаточно жетонов.")
+        return
+
+    await query.edit_message_text("⏳ Генерация с использованием жетонов...")
+
+    await generate_photo_with_tokens(user_id, context.bot, db, context, style_key, model_choice)
+
+async def generate_photo_with_tokens(user_id: int, bot: Bot, db, context, style_key: str, model_choice: str):
+    try:
+        style = Config.STYLES.get(style_key)
+        if not style:
+            await bot.send_message(chat_id=user_id, text="❌ Стиль не найден.")
+            return
+
+        photo_paths = await db.get_user_photos(user_id, "input")
+        if not photo_paths:
+            await bot.send_message(
+                chat_id=user_id,
+                text="❌ Не найдены ваши фото. Сначала загрузите их через /upload."
+            )
+            return
+
+        gender = await db.get_user_gender(user_id)
+
+        if model_choice == 'gemini':
+            service = AITunnelService()
+            logger.info(f"Generating with Gemini (tokens) for user {user_id}")
+        else:
+            service = AITunnelService(model_type="gpt", quality="high", size="1024x1024")
+            logger.info(f"Generating with GPT (tokens) for user {user_id}")
+
+        results = await service.generate_photos(
+            user_photo_paths=photo_paths,
+            style_key=style_key,
+            num_images=1,
+            gender=gender
+        )
+
+        if results:
+            await bot.send_message(
+                chat_id=user_id,
+                text=f"✅ Ваше фото в стиле {style['name']} (использован жетон):"
+            )
+            for image_data in results:
+                await send_photo_or_fallback(bot, user_id, image_data)
+        else:
+            await bot.send_message(
+                chat_id=user_id,
+                text="❌ Не удалось сгенерировать фото."
+            )
+
+        await bot.send_message(
+            chat_id=user_id,
+            text="👇 *Главное меню*:",
+            parse_mode='Markdown',
+            reply_markup=get_main_menu_keyboard()
+        )
+    except Exception as e:
+        logger.error(f"Ошибка генерации по жетону для user {user_id}: {e}", exc_info=True)
+        await bot.send_message(
+            chat_id=user_id,
+            text="❌ Произошла ошибка при генерации. Попробуйте позже."
+        )
+
+async def buy_generation_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    await query.edit_message_text(
+        "Нажмите «💳 Купить генерацию» в главном меню для оплаты."
     )
     await context.bot.send_message(
-        chat_id=user_id,
+        chat_id=update.effective_user.id,
         text="👇 *Главное меню*:",
         parse_mode='Markdown',
         reply_markup=get_main_menu_keyboard()
     )
 
+# Обработчики
 styles_handler = CommandHandler("styles", styles_command)
 show_styles_cb = CallbackQueryHandler(show_styles_callback, pattern="^show_styles$")
 style_selected_cb = CallbackQueryHandler(style_selected_callback, pattern="^select_style_")
 model_selected_cb = CallbackQueryHandler(model_selected_callback, pattern="^select_model_")
+use_token_cb = CallbackQueryHandler(use_token_callback, pattern="^use_token$")
+buy_generation_cb = CallbackQueryHandler(buy_generation_callback, pattern="^buy_generation$")

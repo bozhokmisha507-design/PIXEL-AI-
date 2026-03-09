@@ -13,11 +13,10 @@ from utils.helpers import send_photo_or_fallback
 
 logger = logging.getLogger(__name__)
 
-# ---------- Команда /buy ----------
+# ---------- Команда /buy (обычная генерация) ----------
 async def buy_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
 
-    # Определяем выбранную модель и цену
     selected_model = 'gemini'
     if context.user_data is not None:
         selected_model = context.user_data.get('selected_model', 'gemini')
@@ -56,7 +55,45 @@ async def buy_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         reply_markup=reply_markup
     )
 
-# ---------- Фоновая проверка платежей ----------
+# ---------- Команда /buy20 (пакет 20 жетонов) ----------
+async def buy_tokens_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    label = f"tokens20_{user_id}_{uuid.uuid4().hex[:8]}"
+    amount = Config.PRICE_20_TOKENS
+
+    db = await get_db()
+    await db.create_order(user_id, label, amount)
+
+    try:
+        quickpay = Quickpay(
+            receiver=Config.YOOMONEY_WALLET,
+            quickpay_form="shop",
+            targets="Пакет 20 генераций в PIXEL AI",
+            paymentType="AC",
+            sum=amount,
+            label=label,
+            successURL=f"https://t.me/bma3_bot?start=tokens_{label}"
+        )
+        payment_url = quickpay.redirected_url
+    except Exception as e:
+        logger.error(f"Ошибка создания ссылки для пакета: {e}")
+        await update.message.reply_text(
+            "❌ Не удалось создать ссылку.",
+            reply_markup=get_main_menu_keyboard()
+        )
+        return
+
+    keyboard = [[InlineKeyboardButton(f"💳 Оплатить {amount}₽", url=payment_url)]]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+
+    await update.message.reply_text(
+        "✨ Купи пакет из 20 жетонов!\n"
+        "Gemini = 1 жетон, GPT Image High = 2 жетона.\n"
+        f"Стоимость пакета: {amount}₽",
+        reply_markup=reply_markup
+    )
+
+# ---------- Фоновая проверка платежей (расширена для пакетов) ----------
 async def check_payments_job(context: ContextTypes.DEFAULT_TYPE):
     access_token = Config.YOOMONEY_ACCESS_TOKEN
     if not access_token:
@@ -77,19 +114,31 @@ async def check_payments_job(context: ContextTypes.DEFAULT_TYPE):
             history = client.operation_history(label=label)
             for operation in history.operations:
                 if operation.status == 'success' and operation.label == label:
-                    logger.info(f"Платёж подтверждён (фоновый) для user {user_id}, label {label}")
-                    await generate_paid_photo(
-                        user_id,
-                        context.bot,
-                        db,
-                        context,
-                        label=label
-                    )
+                    # Помечаем заказ как обработанный
+                    await db.mark_order_processed(label)
+                    logger.info(f"Платёж подтверждён для label {label}")
+
+                    if label.startswith("tokens20_"):
+                        # Начисляем 20 жетонов
+                        await db.add_tokens(user_id, 20)
+                        await context.bot.send_message(
+                            chat_id=user_id,
+                            text="✅ Вам начислено 20 жетонов! Используйте их при генерации."
+                        )
+                    else:
+                        # Обычная генерация
+                        await generate_paid_photo(
+                            user_id,
+                            context.bot,
+                            db,
+                            context,
+                            label=label
+                        )
                     break
         except Exception as e:
             logger.error(f"Ошибка при проверке заказа {label}: {e}")
 
-# ---------- Обработка вебхука ----------
+# ---------- Обработка вебхука (также расширена) ----------
 async def handle_yoomoney_notification(data: dict, bot: Bot, db):
     logger.info(f"Обработка уведомления от ЮMoney: {data}")
     label = data.get('label')
@@ -97,14 +146,27 @@ async def handle_yoomoney_notification(data: dict, bot: Bot, db):
     if not label or status != 'success':
         logger.warning(f"Уведомление не является успешным или нет label: {data}")
         return
-    try:
-        user_id = int(label.split('_')[1])
-    except (IndexError, ValueError):
-        logger.error(f"Не удалось извлечь user_id из label: {label}")
-        return
-    await generate_paid_photo(user_id, bot, db, context=None, label=label)
 
-# ---------- Генерация фото ----------
+    await db.mark_order_processed(label)
+
+    if label.startswith("tokens20_"):
+        try:
+            user_id = int(label.split('_')[1])
+            await db.add_tokens(user_id, 20)
+            await bot.send_message(
+                chat_id=user_id,
+                text="✅ Вам начислено 20 жетонов! Используйте их при генерации."
+            )
+        except Exception as e:
+            logger.error(f"Ошибка начисления жетонов: {e}")
+    else:
+        try:
+            user_id = int(label.split('_')[1])
+            await generate_paid_photo(user_id, bot, db, context=None, label=label)
+        except Exception as e:
+            logger.error(f"Ошибка генерации: {e}")
+
+# ---------- Генерация фото (без изменений, но оставим для полноты) ----------
 async def generate_paid_photo(user_id: int, bot: Bot, db, context=None, label=None):
     try:
         if label:
@@ -141,7 +203,6 @@ async def generate_paid_photo(user_id: int, bot: Bot, db, context=None, label=No
 
         gender = await db.get_user_gender(user_id)
 
-        # 🔥 Безопасное получение выбранной модели
         selected_model = 'gemini'
         if context is not None and context.user_data is not None:
             selected_model = context.user_data.get('selected_model', 'gemini')
@@ -192,4 +253,6 @@ async def generate_paid_photo(user_id: int, bot: Bot, db, context=None, label=No
             text="❌ Произошла внутренняя ошибка. Мы уже работаем над её исправлением."
         )
 
+# ---------- Экспорт обработчиков ----------
 buy_handler = CommandHandler("buy", buy_command)
+buy_tokens_handler = CommandHandler("buy20", buy_tokens_command)

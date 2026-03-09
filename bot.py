@@ -23,7 +23,9 @@ from handlers.styles import styles_handler, show_styles_cb, style_selected_cb, m
 from handlers.upload import upload_conversation
 from handlers.clean import clean_photos_handler
 from handlers.payment import buy_handler, check_payments_job
-
+from handlers.payment import buy_tokens_handler
+from handlers.styles import use_token_cb, buy_generation_cb
+from handlers.menu import tokens_handler
 from webhook_server import start_webhook_server
 
 logging.basicConfig(
@@ -74,13 +76,19 @@ async def main_async():
     application.add_handler(show_styles_cb)
     application.add_handler(style_selected_cb)
     application.add_handler(model_selected_cb)
-
+    # 🔥 НОВЫЕ КОЛБЭКИ
+    application.add_handler(use_token_cb)
+    application.add_handler(buy_generation_cb)
     # Обработчик выбора пола
     application.add_handler(CallbackQueryHandler(gender_callback, pattern="^set_gender_"))
 
     # Команда покупки
     application.add_handler(buy_handler)
+    # 🔥 НОВАЯ КОМАНДА ДЛЯ ПАКЕТА
+    application.add_handler(buy_tokens_handler)
 
+    # 🔥 НОВЫЙ ОБРАБОТЧИК ДЛЯ КНОПКИ "💎 Мои жетоны" (ДО основного MessageHandler)
+    application.add_handler(tokens_handler)
     # Кнопки главного меню
     application.add_handler(MessageHandler(
         filters.Text([

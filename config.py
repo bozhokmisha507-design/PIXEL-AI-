@@ -13,6 +13,11 @@ class Config:
     YOOMONEY_WALLET = os.getenv("YOOMONEY_WALLET", "")
     PRICE_PER_GENERATION = 38          # базовая цена (Gemini)
     PRICE_PREMIUM = 76                  # премиум цена (GPT Image High)
+    PRICE_20_TOKENS = 700                # пакет 20 жетонов
+
+    # Расход жетонов для разных моделей
+    TOKEN_COST_GEMINI = 1
+    TOKEN_COST_GPT = 2
 
     # Telegram Payments (на будущее)
     PAYMENT_PROVIDER_TOKEN = os.getenv("PAYMENT_PROVIDER_TOKEN", "")

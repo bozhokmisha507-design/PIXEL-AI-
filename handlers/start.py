@@ -2,12 +2,13 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, Bot
 from telegram.ext import ContextTypes, CommandHandler, CallbackQueryHandler, MessageHandler, filters, ConversationHandler
 from database.db import get_db
 from handlers.menu import get_main_menu_keyboard
+from config import Config
 import logging
 
 logger = logging.getLogger(__name__)
 
 # ⚠️ СЮДА ВСТАВЛЯЙТЕ ЛЮБОЙ FILE_ID (фото, видео, GIF)
-WELCOME_MEDIA_FILE_ID = "AgACAgIAAxkBAAIImmmtLU3VKHz659Im62n7MzgSrT50AAKCFGsbLidoSTQu7GHRWg2NAQADAgADeQADOgQ"
+WELCOME_MEDIA_FILE_ID = "AgACAgIAAxkBAAIJlWmuwe2d_VJN3RWKwOYJyf6MXp_qAAJoEmsbBDJ4SZbV4C13O3nMAQADAgADeQADOgQ"
 
 async def send_welcome_message(chat_id: int, first_name: str, bot: Bot):
     """Отправляет приветственное медиа (фото/видео/GIF) с подписью и главным меню."""
@@ -18,6 +19,10 @@ async def send_welcome_message(chat_id: int, first_name: str, bot: Bot):
         f"1️⃣ Загрузи свои селфи (2-5 фото)\n"
         f"2️⃣ Выбери стиль\n"
         f"3️⃣ Получи готовую фотосессию!\n\n"
+        f"💎 *Экономь с жетонами!*\n"
+        f"Покупай пакет 20 жетонов за {Config.PRICE_20_TOKENS}₽ и трать их на генерации:\n"
+        f"• Gemini = 1 жетон\n"
+        f"• GPT Image High = 2 жетона\n\n"
         f"👇 Жми на кнопки ниже и пробуй!"
     )
 

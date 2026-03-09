@@ -68,75 +68,25 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # Проверяем, не обработан ли уже заказ
         if await db.is_order_processed(label):
             await update.message.reply_text(
-                "✅ Ваше парное фото уже было сгенерировано.",
+                "✅ Ваше парное фото уже было сгенерировано. Проверьте предыдущие сообщения.",
                 reply_markup=get_main_menu_keyboard()
             )
             return
 
-        # Помечаем заказ как обработанный
-        await db.mark_order_processed(label)
-
-        # Получаем данные заказа (пути к фото и выбранный стиль)
-        # Для этого нужно расширить таблицу orders полем data (JSON)
-        # Пример запроса: SELECT data FROM orders WHERE label = ?
-        # Здесь предполагаем, что такая функция есть в db.py
+        # Если заказ ещё не обработан (редко, но может быть при задержке вебхука) – пытаемся сгенерировать
         order_data = await db.get_order_data(label)
-        if not order_data:
-            # Если данных нет (старая версия) – просим начать диалог заново
+        if order_data:
+            # Импортируем функцию генерации (здесь, чтобы избежать циклических импортов)
+            from handlers.couple import generate_couple_photo_from_data
+            await generate_couple_photo_from_data(user_id, context.bot, db, order_data)
+            return
+        else:
+            # Если данных нет (старая версия или ошибка) – просим начать диалог заново
             await update.message.reply_text(
                 "✅ Оплата получена! Теперь нажмите «👫 Парные фото» в главном меню и пройдите шаги заново. Ваше фото будет создано без повторной оплаты.",
                 reply_markup=get_main_menu_keyboard()
             )
             return
-
-        # Извлекаем пути к фото и стиль
-        male_photo = order_data.get('male_photo')
-        female_photo = order_data.get('female_photo')
-        style_key = order_data.get('style')
-
-        if not male_photo or not female_photo or not style_key:
-            await update.message.reply_text(
-                "❌ Ошибка: неполные данные заказа. Попробуйте начать заново.",
-                reply_markup=get_main_menu_keyboard()
-            )
-            return
-
-        # Генерируем парное фото
-        from services.aitunnel_service import AITunnelService
-        from handlers.couple import COUPLE_PROMPTS  # словарь промптов
-        aitunnel = AITunnelService()
-        prompt = COUPLE_PROMPTS.get(style_key, "A romantic couple, photorealistic, 8k")
-        results = await aitunnel.generate_couple_photo(
-            male_photo_path=male_photo,
-            female_photo_path=female_photo,
-            prompt=prompt,
-            num_images=1
-        )
-
-        if results:
-            await update.message.reply_text("✅ Ваше парное фото готово!")
-            for img_data in results:
-                from utils.helpers import send_photo_or_fallback
-                await send_photo_or_fallback(context.bot, user_id, img_data)
-        else:
-            await update.message.reply_text("❌ Не удалось сгенерировать фото. Попробуйте позже.")
-
-        # Очищаем временные файлы
-        import os
-        for path in [male_photo, female_photo]:
-            try:
-                if os.path.exists(path):
-                    os.remove(path)
-            except:
-                pass
-
-        await context.bot.send_message(
-            chat_id=user_id,
-            text="👇 *Главное меню*:",
-            parse_mode='Markdown',
-            reply_markup=get_main_menu_keyboard()
-        )
-        return
 
     # Обычный запуск /start (без аргументов)
     if not update.message or not update.effective_user:

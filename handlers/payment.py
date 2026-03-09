@@ -169,11 +169,18 @@ async def check_payments_job(context: ContextTypes.DEFAULT_TYPE):
                             text="✅ Вам начислено 20 жетонов! Используйте их при генерации."
                         )
                     elif label.startswith("couple_"):
-                        # Парная генерация – оплата прошла, но фото будет сгенерировано при возврате пользователя
-                        await context.bot.send_message(
-                            chat_id=user_id,
-                            text="✅ Оплата парной генерации получена! Вернитесь в бота и нажмите /start, чтобы получить фото."
-                        )
+                        # Парная генерация – извлекаем данные и генерируем фото
+                        order_data = await db.get_order_data(label)
+                        if order_data:
+                            # Импортируем функцию генерации (здесь, чтобы избежать циклических импортов)
+                            from handlers.couple import generate_couple_photo_from_data
+                            await generate_couple_photo_from_data(user_id, context.bot, db, order_data)
+                        else:
+                            logger.error(f"Нет данных для заказа {label}")
+                            await context.bot.send_message(
+                                chat_id=user_id,
+                                text="✅ Оплата получена, но произошла ошибка при загрузке данных. Пожалуйста, начните заново с кнопки «👫 Парные фото»."
+                            )
                     else:
                         # Обычная генерация
                         await generate_paid_photo(
@@ -211,10 +218,16 @@ async def handle_yoomoney_notification(data: dict, bot: Bot, db):
     elif label.startswith("couple_"):
         try:
             user_id = int(label.split('_')[1])
-            await bot.send_message(
-                chat_id=user_id,
-                text="✅ Оплата парной генерации получена! Вернитесь в бота и нажмите /start, чтобы получить фото."
-            )
+            order_data = await db.get_order_data(label)
+            if order_data:
+                from handlers.couple import generate_couple_photo_from_data
+                await generate_couple_photo_from_data(user_id, bot, db, order_data)
+            else:
+                logger.error(f"Нет данных для заказа {label}")
+                await bot.send_message(
+                    chat_id=user_id,
+                    text="✅ Оплата получена, но произошла ошибка при загрузке данных. Пожалуйста, начните заново с кнопки «👫 Парные фото»."
+                )
         except Exception as e:
             logger.error(f"Ошибка при обработке парной оплаты: {e}")
     else:

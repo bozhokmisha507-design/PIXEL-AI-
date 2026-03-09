@@ -15,7 +15,11 @@ class Config:
     PRICE_PREMIUM = 76                  # премиум цена (GPT Image High)
     PRICE_20_TOKENS = 700                # пакет 20 жетонов
     COUPLE_PRICE = 40                     # цена парной генерации
-    COUPLE_TOKEN_COST = 1                  # стоимость в жетонах
+    COUPLE_TOKEN_COST = 1                  # стоимость в жетонах для пар
+
+    # Стоимость в жетонах для одиночных генераций
+    TOKEN_COST_GEMINI = 1
+    TOKEN_COST_GPT = 2
 
     # Telegram Payments (на будущее)
     PAYMENT_PROVIDER_TOKEN = os.getenv("PAYMENT_PROVIDER_TOKEN", "")

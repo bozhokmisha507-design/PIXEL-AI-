@@ -1,6 +1,7 @@
 import aiosqlite
 import logging
 import os
+import json  # добавлен импорт
 from datetime import datetime
 
 logger = logging.getLogger(__name__)
@@ -61,19 +62,28 @@ class Database:
                     label TEXT UNIQUE,
                     amount REAL,
                     status TEXT DEFAULT 'pending',
+                    data TEXT,                    -- новое поле для хранения JSON
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     processed BOOLEAN DEFAULT 0,
                     FOREIGN KEY (user_id) REFERENCES users(user_id)
                 )
             """)
 
-            # Проверяем наличие колонки tokens и добавляем, если её нет
+            # Проверяем наличие колонки tokens в users и добавляем, если её нет
             cursor = await db.execute("PRAGMA table_info(users)")
             columns = await cursor.fetchall()
             column_names = [col[1] for col in columns]
             if 'tokens' not in column_names:
                 await db.execute("ALTER TABLE users ADD COLUMN tokens INTEGER DEFAULT 0")
                 logger.info("✅ Добавлена колонка tokens в таблицу users")
+
+            # Проверяем наличие колонки data в orders (на случай, если таблица уже существовала)
+            cursor = await db.execute("PRAGMA table_info(orders)")
+            columns = await cursor.fetchall()
+            column_names = [col[1] for col in columns]
+            if 'data' not in column_names:
+                await db.execute("ALTER TABLE orders ADD COLUMN data TEXT")
+                logger.info("✅ Добавлена колонка data в таблицу orders")
 
             await db.commit()
 
@@ -122,7 +132,7 @@ class Database:
             await db.commit()
             return cursor.rowcount > 0
 
-    # ===== Остальные методы (без изменений, но для полноты приведены) =====
+    # ===== Фотографии =====
     async def get_user_photo_count(self, user_id):
         paths = await self.get_user_photos(user_id, "input")
         return len(paths)
@@ -188,9 +198,20 @@ class Database:
             return style
 
     # ===== Заказы =====
-    async def create_order(self, user_id: int, label: str, amount: float) -> None:
+    async def create_order(self, user_id: int, label: str, amount: float, data: dict = None) -> None:
+        """Создаёт запись о заказе. Если передан data, сохраняет его как JSON в поле data."""
         async with aiosqlite.connect(self.db_path) as db:
-            await db.execute("INSERT INTO orders (user_id, label, amount) VALUES (?, ?, ?)", (user_id, label, amount))
+            if data is not None:
+                data_json = json.dumps(data, ensure_ascii=False)
+                await db.execute(
+                    "INSERT INTO orders (user_id, label, amount, data) VALUES (?, ?, ?, ?)",
+                    (user_id, label, amount, data_json)
+                )
+            else:
+                await db.execute(
+                    "INSERT INTO orders (user_id, label, amount) VALUES (?, ?, ?)",
+                    (user_id, label, amount)
+                )
             await db.commit()
 
     async def get_unprocessed_orders(self) -> list:
@@ -215,6 +236,15 @@ class Database:
             cursor = await db.execute("SELECT processed FROM orders WHERE label = ?", (label,))
             row = await cursor.fetchone()
             return bool(row and row[0])
+
+    async def get_order_data(self, label: str) -> dict | None:
+        """Возвращает данные заказа (поле data) в виде словаря, если они есть."""
+        async with aiosqlite.connect(self.db_path) as db:
+            cursor = await db.execute("SELECT data FROM orders WHERE label = ?", (label,))
+            row = await cursor.fetchone()
+            if row and row[0]:
+                return json.loads(row[0])
+        return None
 
 # ===== Глобальный экземпляр БД =====
 _db_instance = None

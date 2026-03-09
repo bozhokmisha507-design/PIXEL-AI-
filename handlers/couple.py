@@ -1,6 +1,7 @@
 import uuid
 import logging
 import os
+import json
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, Bot
 from telegram.ext import ContextTypes, ConversationHandler, CommandHandler, MessageHandler, filters, CallbackQueryHandler
 from config import Config
@@ -28,7 +29,7 @@ COUPLE_STYLES = {
     "couple_forest": "🌲 Лесная прогулка",
 }
 
-# Промпты для пар (можно вынести в config, но для простоты оставим здесь)
+# Промпты для пар
 COUPLE_PROMPTS = {
     "couple_beach": "A romantic couple on a beach at sunset, holding hands, photorealistic, 8k, faces clearly visible",
     "couple_wedding": "A wedding couple in a garden, bride in white dress, groom in tuxedo, photorealistic, 8k, faces clearly visible",
@@ -144,11 +145,12 @@ async def pay_with_tokens_callback(update: Update, context: ContextTypes.DEFAULT
         return ConversationHandler.END
 
     await query.edit_message_text("⏳ Генерация парного фото с использованием жетонов...")
+    # Генерируем сразу, данные берутся из user_data
     await generate_couple_photo(user_id, context.bot, db, context)
     return ConversationHandler.END
 
 async def pay_with_money_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Оплата деньгами – создаём ссылку на оплату."""
+    """Оплата деньгами – создаём ссылку на оплату и сохраняем данные заказа."""
     query = update.callback_query
     await query.answer()
 
@@ -156,8 +158,15 @@ async def pay_with_money_callback(update: Update, context: ContextTypes.DEFAULT_
     label = f"couple_{user_id}_{uuid.uuid4().hex[:8]}"
     amount = COUPLE_PRICE
 
+    # Сохраняем данные заказа (пути к фото и стиль) в БД
+    data = {
+        'male_photo': context.user_data['couple_photos'][0],
+        'female_photo': context.user_data['couple_photos'][1],
+        'style': context.user_data['couple_style']
+    }
+
     db = await get_db()
-    await db.create_order(user_id, label, amount)
+    await db.create_order(user_id, label, amount, data=data)
 
     try:
         from yoomoney import Quickpay
@@ -181,7 +190,7 @@ async def pay_with_money_callback(update: Update, context: ContextTypes.DEFAULT_
         "✨ Для завершения оплаты нажмите кнопку ниже. После оплаты фото придёт автоматически.",
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
-    # Диалог завершаем, генерация будет по вебхуку/фоновой проверке
+    # Диалог завершаем, генерация будет выполнена после подтверждения платежа (вебхук / фоновая задача)
     return ConversationHandler.END
 
 async def cancel_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -200,8 +209,8 @@ async def cancel_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         del context.user_data['couple_photos']
     return ConversationHandler.END
 
-async def generate_couple_photo(user_id: int, bot: Bot, db, context):
-    """Генерация парного фото после оплаты (или использования жетонов)."""
+async def generate_couple_photo(user_id: int, bot: Bot, db, context=None):
+    """Генерация парного фото после оплаты жетонами (данные из user_data)."""
     try:
         photo_paths = context.user_data.get('couple_photos', [])
         if len(photo_paths) != 2:
@@ -215,9 +224,7 @@ async def generate_couple_photo(user_id: int, bot: Bot, db, context):
 
         prompt = COUPLE_PROMPTS.get(style_key, "A romantic couple, photorealistic, 8k, faces clearly visible")
 
-        # Используем AITunnelService с двумя референсами (требует доработки сервиса)
         aitunnel = AITunnelService()
-        # Предполагаем, что у сервиса есть метод generate_couple_photo (см. изменения в aitunnel_service.py)
         results = await aitunnel.generate_couple_photo(
             male_photo_path=photo_paths[0],
             female_photo_path=photo_paths[1],
@@ -249,6 +256,59 @@ async def generate_couple_photo(user_id: int, bot: Bot, db, context):
         )
     except Exception as e:
         logger.error(f"Ошибка генерации парного фото: {e}", exc_info=True)
+        await bot.send_message(user_id, "❌ Произошла ошибка. Мы уже работаем над её исправлением.")
+
+async def generate_couple_photo_from_data(user_id: int, bot: Bot, db, data: dict):
+    """Генерация парного фото по данным из БД (используется после денежной оплаты)."""
+    try:
+        male_photo = data.get('male_photo')
+        female_photo = data.get('female_photo')
+        style_key = data.get('style')
+
+        if not male_photo or not female_photo or not style_key:
+            logger.error(f"Неполные данные для генерации парного фото: {data}")
+            await bot.send_message(user_id, "❌ Ошибка: неполные данные заказа.")
+            return
+
+        # Проверяем существование файлов
+        if not os.path.exists(male_photo) or not os.path.exists(female_photo):
+            logger.error(f"Файлы не найдены: {male_photo}, {female_photo}")
+            await bot.send_message(user_id, "❌ Ошибка: исходные фото не найдены. Попробуйте начать заново.")
+            return
+
+        prompt = COUPLE_PROMPTS.get(style_key, "A romantic couple, photorealistic, 8k, faces clearly visible")
+
+        aitunnel = AITunnelService()
+        results = await aitunnel.generate_couple_photo(
+            male_photo_path=male_photo,
+            female_photo_path=female_photo,
+            prompt=prompt,
+            num_images=1
+        )
+
+        if results:
+            await bot.send_message(user_id, "✅ Ваше парное фото готово!")
+            for image_data in results:
+                await send_photo_or_fallback(bot, user_id, image_data)
+        else:
+            await bot.send_message(user_id, "❌ Не удалось сгенерировать фото. Попробуйте позже.")
+
+        # Очищаем временные файлы
+        for path in [male_photo, female_photo]:
+            try:
+                if os.path.exists(path):
+                    os.remove(path)
+            except:
+                pass
+
+        await bot.send_message(
+            chat_id=user_id,
+            text="👇 *Главное меню*:",
+            parse_mode='Markdown',
+            reply_markup=get_main_menu_keyboard()
+        )
+    except Exception as e:
+        logger.error(f"Ошибка генерации парного фото из данных: {e}", exc_info=True)
         await bot.send_message(user_id, "❌ Произошла ошибка. Мы уже работаем над её исправлением.")
 
 # ConversationHandler

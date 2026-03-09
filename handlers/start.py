@@ -50,30 +50,34 @@ async def send_welcome_message(chat_id: int, first_name: str, bot: Bot):
         logger.error(f"Ошибка отправки медиа: {e}")
         await bot.send_message(chat_id, text=welcome_text, parse_mode='Markdown', reply_markup=get_main_menu_keyboard())
 
-# ===== Функция для показа баланса жетонов =====
+# ===== Функция для показа баланса жетонов (с инлайн-кнопкой) =====
 async def my_tokens_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Показывает баланс жетонов пользователя."""
+    """Показывает баланс жетонов и предлагает купить ещё."""
     user_id = update.effective_user.id
     db = await get_db()
     tokens = await db.get_user_tokens(user_id)
+
+    text = (
+        f"💎 *Ваш баланс жетонов:* {tokens}\n\n"
+        "• Gemini = 1 жетон\n"
+        "• GPT Image High = 2 жетона\n"
+        "• Парные фото = 1 жетон"
+    )
+    
+    # ✅ Инлайн-кнопка для покупки
+    keyboard = [[InlineKeyboardButton("💎 Купить 20 жетонов за 700₽", callback_data="buy_tokens")]]
     
     await update.message.reply_text(
-        f"💎 *Ваш баланс жетонов:* {tokens}\n\n"
-        f"• Gemini = 1 жетон\n"
-        f"• GPT Image High = 2 жетона\n"
-        f"• Парные фото = 1 жетон",
+        text,
         parse_mode='Markdown',
-        reply_markup=get_main_menu_keyboard()
+        reply_markup=InlineKeyboardMarkup(keyboard)
     )
 
 # ===== Фоновая задача для генерации парного фото =====
 async def generate_couple_in_background(user_id: int, bot: Bot, db, label: str):
     """Генерирует парное фото в фоне и отправляет результат."""
     try:
-        # Ждём немного, чтобы пользователь увидел сообщение об оплате
         await asyncio.sleep(2)
-        
-        # Получаем данные заказа
         order_data = await db.get_order_data(label)
         if not order_data:
             logger.error(f"❌ Нет данных для заказа {label}")
@@ -95,7 +99,6 @@ async def generate_couple_in_background(user_id: int, bot: Bot, db, label: str):
 
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if context.args and context.args[0].startswith("payment_"):
-        # Обычная генерация
         label = context.args[0].replace("payment_", "")
         user_id = update.effective_user.id
         db = await get_db()
@@ -104,7 +107,6 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     elif context.args and context.args[0].startswith("couple_"):
-        # Парная генерация после оплаты
         label = context.args[0].replace("couple_", "")
         user_id = update.effective_user.id
         db = await get_db()

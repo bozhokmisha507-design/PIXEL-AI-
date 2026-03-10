@@ -8,13 +8,13 @@ import uuid
 logger = logging.getLogger(__name__)
 
 def get_main_menu_keyboard():
-    """Главное меню с двумя колонками."""
+    """Главное меню с кнопкой 'Свой промпт' внизу."""
     buttons = [
         [KeyboardButton("📤 Загрузить фото"), KeyboardButton("👫 Парные фото")],
         [KeyboardButton("🖼️ Стили"), KeyboardButton("💎 Мои жетоны")],
         [KeyboardButton("💳 Купить генерацию"), KeyboardButton("🏠 Главное меню")],
-        [KeyboardButton("🗑 Очистить селфи"), KeyboardButton("❓ Помощь")],
-        [KeyboardButton("✍️ Свой промпт")]
+        [KeyboardButton("🗑 Очистить селфи"), KeyboardButton("❓ Помощь")],  # ✅ запятая в конце
+        [KeyboardButton("✍️ Свой промпт")]                                   # ✅ отдельный ряд
     ]
     return ReplyKeyboardMarkup(buttons, resize_keyboard=True)
 

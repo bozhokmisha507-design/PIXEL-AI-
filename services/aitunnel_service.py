@@ -51,9 +51,9 @@ class AITunnelService:
         elif style_key == "editorial_studio":
             if gender == 'male':
                 prompt = (
-                    "Hyper-realistic studio photography on a beige background, cinematic bright expensive lighting, "
-                    "sitting on a soft ottoman in full length, wearing white shoes, light jeans, and a light gray unbuttoned shirt, "
-                    "like in a high-end fashion magazine, 8k, photorealistic, face clearly visible, professional retouching"
+                    "Elegant fashion studio portrait of a man on a clean beige background, "
+                    "cinematic bright studio lighting, wearing white shoes, light jeans, and a light gray shirt, "
+                    "high-end fashion magazine style, 8k, photorealistic, face clearly visible, professional retouching"
                 )
             elif gender == 'female':
                 prompt = (

@@ -182,7 +182,7 @@ async def generate_custom_photo(user_id: int, bot, db, context):
 
         gender = await db.get_user_gender(user_id)
 
-        # Адаптируем промпт с учётом пола (опционально)
+        # Адаптируем промпт с учётом пола
         if gender == 'male':
             full_prompt = f"Photo of this man. {prompt}"
         elif gender == 'female':
@@ -190,26 +190,16 @@ async def generate_custom_photo(user_id: int, bot, db, context):
         else:
             full_prompt = f"Photo of this person. {prompt}"
 
-        # Добавляем инструкцию горизонтального формата
+        # Добавляем инструкцию горизонтального формата для обеих моделей
         full_prompt += " Landscape orientation, horizontal composition, aspect ratio 16:9, wide format."
 
         if model_choice == 'gemini':
             service = AITunnelService()
             logger.info(f"Custom generation with Gemini for user {user_id}")
         else:
-            service = AITunnelService(model_type="gpt", quality="high", size="1024x1024")
+            # ✅ ИСПРАВЛЕНО: размер 1536x1024 (горизонтальный)
+            service = AITunnelService(model_type="gpt", quality="high", size="1536x1024")
             logger.info(f"Custom generation with GPT for user {user_id}")
-
-        # Используем существующий метод generate_photos, передавая промпт напрямую
-        # Для этого модифицируем AITunnelService, чтобы можно было передать кастомный промпт.
-        # Но проще создать отдельный метод, либо использовать generate_photos с style_key=None.
-        # Мы добавим в AITunnelService метод generate_custom_photo.
-        # Пока вызовем generate_photos с style_key=None и передадим промпт.
-        # Для этого нужно доработать AITunnelService. Сделаем отдельную реализацию.
-
-        # Временно: используем существующий generate_photos, но передадим промпт через style_key? Нет.
-        # Лучше сделаем новый метод в aitunnel_service.py – generate_custom_photo.
-        # Пока напишем прямо здесь, но позже перенесём.
 
         results = await service.generate_custom_photo(
             user_photo_paths=photo_paths,

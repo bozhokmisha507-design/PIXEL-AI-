@@ -1,11 +1,14 @@
+import uuid
+import logging
+import os
+import json
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, Bot
-from telegram.ext import ContextTypes, CommandHandler, CallbackQueryHandler
+from telegram.ext import ContextTypes, CommandHandler, CallbackQueryHandler, MessageHandler, filters, ConversationHandler
 from config import Config
 from handlers.menu import get_main_menu_keyboard
 from database.db import get_db
 from services.aitunnel_service import AITunnelService
 from utils.helpers import send_photo_or_fallback
-import logging
 import aiohttp
 
 logger = logging.getLogger(__name__)
@@ -183,7 +186,8 @@ async def generate_photo_with_tokens(user_id: int, bot: Bot, db, context, style_
             service = AITunnelService()
             logger.info(f"Generating with Gemini (tokens) for user {user_id}")
         else:
-            service = AITunnelService(model_type="gpt", quality="high", size="1024x1024")
+            # ✅ ИСПРАВЛЕНО: размер 1536x1024 (горизонтальный)
+            service = AITunnelService(model_type="gpt", quality="high", size="1536x1024")
             logger.info(f"Generating with GPT (tokens) for user {user_id}")
 
         results = await service.generate_photos(

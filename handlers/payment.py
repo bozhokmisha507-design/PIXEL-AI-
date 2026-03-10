@@ -136,7 +136,7 @@ async def buy_tokens_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
     user_id = query.from_user.id
     await send_tokens_purchase_message(user_id, context)
 
-# ---------- Фоновая проверка платежей (расширена для пакетов и парных фото) ----------
+# ---------- Фоновая проверка платежей ----------
 async def check_payments_job(context: ContextTypes.DEFAULT_TYPE):
     access_token = Config.YOOMONEY_ACCESS_TOKEN
     if not access_token:
@@ -157,22 +157,18 @@ async def check_payments_job(context: ContextTypes.DEFAULT_TYPE):
             history = client.operation_history(label=label)
             for operation in history.operations:
                 if operation.status == 'success' and operation.label == label:
-                    # Помечаем заказ как обработанный
                     await db.mark_order_processed(label)
                     logger.info(f"Платёж подтверждён для label {label}")
 
                     if label.startswith("tokens20_"):
-                        # Начисляем 20 жетонов
                         await db.add_tokens(user_id, 20)
                         await context.bot.send_message(
                             chat_id=user_id,
                             text="✅ Вам начислено 20 жетонов! Используйте их при генерации."
                         )
                     elif label.startswith("couple_"):
-                        # Парная генерация – извлекаем данные и генерируем фото
                         order_data = await db.get_order_data(label)
                         if order_data:
-                            # Импортируем функцию генерации (здесь, чтобы избежать циклических импортов)
                             from handlers.couple import generate_couple_photo_from_data
                             await generate_couple_photo_from_data(user_id, context.bot, db, order_data)
                         else:
@@ -182,7 +178,6 @@ async def check_payments_job(context: ContextTypes.DEFAULT_TYPE):
                                 text="✅ Оплата получена, но произошла ошибка при загрузке данных. Пожалуйста, начните заново с кнопки «👫 Парные фото»."
                             )
                     else:
-                        # Обычная генерация
                         await generate_paid_photo(
                             user_id,
                             context.bot,
@@ -194,7 +189,7 @@ async def check_payments_job(context: ContextTypes.DEFAULT_TYPE):
         except Exception as e:
             logger.error(f"Ошибка при проверке заказа {label}: {e}")
 
-# ---------- Обработка вебхука (также расширена) ----------
+# ---------- Обработка вебхука ----------
 async def handle_yoomoney_notification(data: dict, bot: Bot, db):
     logger.info(f"Обработка уведомления от ЮMoney: {data}")
     label = data.get('label')
@@ -282,7 +277,8 @@ async def generate_paid_photo(user_id: int, bot: Bot, db, context=None, label=No
             service = AITunnelService()
             logger.info(f"Generating with Gemini for user {user_id}")
         else:
-            service = AITunnelService(model_type="gpt", quality="high", size="1024x1024")
+            # ✅ ИСПРАВЛЕНО: размер 1536x1024 (горизонтальный)
+            service = AITunnelService(model_type="gpt", quality="high", size="1536x1024")
             logger.info(f"Generating with GPT Image High for user {user_id}")
 
         results = await service.generate_photos(
@@ -305,7 +301,6 @@ async def generate_paid_photo(user_id: int, bot: Bot, db, context=None, label=No
                 text="❌ Не удалось сгенерировать фото. Попробуйте позже."
             )
 
-        # Очищаем user_data, если есть
         if context is not None and context.user_data is not None:
             context.user_data.pop('selected_style', None)
             context.user_data.pop('selected_model', None)

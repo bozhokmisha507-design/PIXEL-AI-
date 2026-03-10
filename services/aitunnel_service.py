@@ -57,10 +57,10 @@ class AITunnelService:
                 )
             elif gender == 'female':
                 prompt = (
-                    "Hyper-realistic studio photography on a beige background, cinematic bright expensive lighting, "
-                    "sitting on a soft ottoman, full body or close-up, wearing beige shoes and a powder-colored dress, "
-                    "sometimes holding a bouquet of large white roses, like in a high-end fashion magazine, 8k, photorealistic, "
-                    "face clearly visible, professional retouching, varied composition"
+                    "Elegant fashion studio portrait of a woman on a clean beige background, "
+                    "cinematic bright studio lighting, sitting gracefully on a modern ottoman, "
+                    "wearing a stylish powder-colored dress and beige shoes, holding a bouquet of white roses, "
+                    "high-end fashion magazine style, 8k, photorealistic, face clearly visible, professional retouching"
                 )
             else:
                 prompt = base_prompt.replace("{token}", "this person")

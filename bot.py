@@ -24,6 +24,7 @@ from handlers.upload import upload_conversation
 from handlers.clean import clean_photos_handler
 from handlers.payment import buy_handler, buy_tokens_handler, buy_tokens_callback_handler, check_payments_job
 from handlers.couple import couple_conv
+from handlers.custom_prompt import custom_prompt_conv
 from handlers.admin import add_tokens_conv
 from webhook_server import start_webhook_server
 
@@ -70,6 +71,7 @@ async def main_async():
     application.add_handler(upload_conversation)
     application.add_handler(couple_conv)
     application.add_handler(secret_link_conv)
+    application.add_handler(custom_prompt_conv)
     application.add_handler(add_tokens_conv)
     # Callback-обработчики
     application.add_handler(show_styles_cb)

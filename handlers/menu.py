@@ -14,6 +14,7 @@ def get_main_menu_keyboard():
         [KeyboardButton("🖼️ Стили"), KeyboardButton("💎 Мои жетоны")],
         [KeyboardButton("💳 Купить генерацию"), KeyboardButton("🏠 Главное меню")],
         [KeyboardButton("🗑 Очистить селфи"), KeyboardButton("❓ Помощь")]
+        [KeyboardButton("✍️ Свой промпт")]
     ]
     return ReplyKeyboardMarkup(buttons, resize_keyboard=True)
 

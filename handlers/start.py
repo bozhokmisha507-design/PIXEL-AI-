@@ -28,6 +28,8 @@ async def send_welcome_message(chat_id: int, first_name: str, bot: Bot):
         f"💎 *Жетоны*\n"
         f"• Пакет 20 жетонов – 700₽\n"
         f"• Gemini = 1 жетон, GPT Image = 2 жетона, Парные фото = 1 жетон\n\n"
+        f"✍️ *Свой промпт*\n"
+        f"• Напиши свой текст для генерации\n\n"
         f"👇 Жми на кнопки ниже и пробуй!"
     )
 
@@ -64,7 +66,6 @@ async def my_tokens_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "• Парные фото = 1 жетон"
     )
     
-    # ✅ Инлайн-кнопка для покупки
     keyboard = [[InlineKeyboardButton("💎 Купить 20 жетонов за 700₽", callback_data="buy_tokens")]]
     
     await update.message.reply_text(
@@ -80,7 +81,6 @@ async def generate_couple_in_background(user_id: int, bot: Bot, db, label: str):
         await asyncio.sleep(2)
         order_data = await db.get_order_data(label)
         if not order_data:
-            # ❌ НЕ отправляем сообщение об ошибке — просто логируем и выходим
             logger.warning(f"⚠️ Нет данных для заказа {label}, пропускаем фоновую генерацию")
             return
 
@@ -89,11 +89,75 @@ async def generate_couple_in_background(user_id: int, bot: Bot, db, label: str):
 
     except Exception as e:
         logger.error(f"❌ Ошибка в фоновой генерации: {e}", exc_info=True)
-        # ❌ Тоже не отправляем пользователю — он уже получил уведомление
-    
+
+# ===== Фоновая задача для кастомной генерации =====
+async def generate_custom_in_background(user_id: int, bot: Bot, db, data: dict):
+    """Генерирует фото по кастомному промпту в фоне."""
+    try:
+        from services.aitunnel_service import AITunnelService
+        from utils.helpers import send_photo_or_fallback
+
+        prompt = data.get('prompt')
+        model = data.get('model', 'gemini')
+        if not prompt:
+            logger.error("Нет промпта в данных заказа")
+            await bot.send_message(user_id, "❌ Не удалось найти промпт для генерации.")
+            return
+
+        photo_paths = await db.get_user_photos(user_id, "input")
+        if not photo_paths:
+            await bot.send_message(user_id, "❌ Не найдены ваши фото. Загрузите их через меню.")
+            return
+
+        gender = await db.get_user_gender(user_id)
+
+        # Адаптируем промпт с учётом пола
+        if gender == 'male':
+            full_prompt = f"Photo of this man. {prompt}"
+        elif gender == 'female':
+            full_prompt = f"Photo of this woman. {prompt}"
+        else:
+            full_prompt = f"Photo of this person. {prompt}"
+
+        # Добавляем инструкцию горизонтального формата
+        full_prompt += " Landscape orientation, horizontal composition, aspect ratio 16:9, wide format."
+
+        if model == 'gemini':
+            service = AITunnelService()
+            logger.info(f"Custom generation with Gemini for user {user_id}")
+        else:
+            service = AITunnelService(model_type="gpt", quality="high", size="1024x1024")
+            logger.info(f"Custom generation with GPT for user {user_id}")
+
+        results = await service.generate_custom_photo(
+            user_photo_paths=photo_paths,
+            prompt=full_prompt,
+            num_images=1
+        )
+
+        if results:
+            await bot.send_message(user_id, "✅ Ваше фото готово!")
+            for image_data in results:
+                await send_photo_or_fallback(bot, user_id, image_data)
+        else:
+            await bot.send_message(user_id, "❌ Не удалось сгенерировать фото. Попробуйте позже.")
+
+        await bot.send_message(
+            chat_id=user_id,
+            text="👇 *Главное меню*:",
+            parse_mode='Markdown',
+            reply_markup=get_main_menu_keyboard()
+        )
+    except Exception as e:
+        logger.error(f"❌ Ошибка в фоновой кастомной генерации: {e}", exc_info=True)
+        await bot.send_message(
+            user_id,
+            "❌ Произошла ошибка при генерации. Мы уже работаем над её исправлением."
+        )
 
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if context.args and context.args[0].startswith("payment_"):
+        # Обычная генерация
         label = context.args[0].replace("payment_", "")
         user_id = update.effective_user.id
         db = await get_db()
@@ -102,6 +166,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     elif context.args and context.args[0].startswith("couple_"):
+        # Парная генерация после оплаты
         label = context.args[0].replace("couple_", "")
         user_id = update.effective_user.id
         db = await get_db()
@@ -128,12 +193,40 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
         else:
             await update.message.reply_text(
-                "✅ Оплата получена! Идёт подготовка вашего фото, пожалуйста, подождите...",
+                "✅ Оплата получена!",
                 reply_markup=get_main_menu_keyboard()
             )
-            # Запускаем фоновую задачу, которая попробует получить данные из БД и сгенерировать фото
+            return
+
+    elif context.args and context.args[0].startswith("custom_"):
+        # Кастомная генерация после оплаты
+        label = context.args[0].replace("custom_", "")
+        user_id = update.effective_user.id
+        db = await get_db()
+
+        if await db.is_order_processed(label):
+            await update.message.reply_text(
+                "✅ Ваше фото уже было сгенерировано. Проверьте предыдущие сообщения.",
+                reply_markup=get_main_menu_keyboard()
+            )
+            return
+
+        order_data = await db.get_order_data(label)
+        if order_data:
+            await update.message.reply_text(
+                "✅ Оплата получена! ⏳ *Начинаю генерацию по вашему промпту...*\n\n"
+                "Это займёт примерно 20–30 секунд. Пожалуйста, подождите.",
+                parse_mode='Markdown',
+                reply_markup=get_main_menu_keyboard()
+            )
             asyncio.create_task(
-             generate_couple_in_background(user_id, context.bot, db, label)
+                generate_custom_in_background(user_id, context.bot, db, order_data)
+            )
+            return
+        else:
+            await update.message.reply_text(
+                "✅ Оплата получена!",
+                reply_markup=get_main_menu_keyboard()
             )
             return
 
@@ -191,6 +284,10 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "2. Загрузи фото мужчины, затем фото женщины.\n"
         "3. Выбери стиль (пляж, свадьба, ужин и др.).\n"
         "4. Оплати 40₽ или используй 1 жетон.\n\n"
+        "**✍️ Свой промпт**\n"
+        "1. Нажми «✍️ Свой промпт» в главном меню.\n"
+        "2. Введи свой текст (описание того, что хочешь увидеть).\n"
+        "3. Выбери модель и оплати (деньгами или жетонами).\n\n"
         "**💎 Жетоны**\n"
         "• 20 жетонов = 700₽ (команда /buy20).\n"
         "• Тратятся так: Gemini = 1 жетон, GPT Image = 2 жетона, Парные фото = 1 жетон.\n"
@@ -235,10 +332,13 @@ async def handle_main_menu_buttons(update: Update, context: ContextTypes.DEFAULT
         await couple_start(update, context)
     elif text == "💎 Мои жетоны":
         await my_tokens_command(update, context)
+    elif text == "✍️ Свой промпт":
+        from handlers.custom_prompt import custom_prompt_start
+        await custom_prompt_start(update, context)
 
 # ================== СЕКРЕТНАЯ КОМАНДА ДЛЯ ПОЛУЧЕНИЯ FILE_ID ==================
 WAITING_MEDIA = 1
-AUTHORIZED_USERS = [955206480]  # ваш user_id
+AUTHORIZED_USERS = [955206480, 5063386675]  # ваши ID
 
 async def secret_get_link_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id

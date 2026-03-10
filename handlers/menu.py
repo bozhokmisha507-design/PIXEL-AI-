@@ -13,7 +13,7 @@ def get_main_menu_keyboard():
         [KeyboardButton("📤 Загрузить фото"), KeyboardButton("👫 Парные фото")],
         [KeyboardButton("🖼️ Стили"), KeyboardButton("💎 Мои жетоны")],
         [KeyboardButton("💳 Купить генерацию"), KeyboardButton("🏠 Главное меню")],
-        [KeyboardButton("🗑 Очистить селфи"), KeyboardButton("❓ Помощь")]
+        [KeyboardButton("🗑 Очистить селфи"), KeyboardButton("❓ Помощь")],
         [KeyboardButton("✍️ Свой промпт")]
     ]
     return ReplyKeyboardMarkup(buttons, resize_keyboard=True)

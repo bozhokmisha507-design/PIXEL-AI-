@@ -205,4 +205,5 @@ class Config:
     def ensure_dirs(cls):
         os.makedirs(cls.UPLOAD_DIR, exist_ok=True)
         os.makedirs(cls.OUTPUT_DIR, exist_ok=True)
-        ADMIN_IDS = [955206480, 5063386675]
+
+ADMIN_IDS = [955206480, 5063386675]

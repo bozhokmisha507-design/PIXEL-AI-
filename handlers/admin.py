@@ -1,7 +1,7 @@
 from telegram import Update
 from telegram.ext import ContextTypes, CommandHandler, ConversationHandler, MessageHandler, filters
 from database.db import get_db
-from config import ADMIN_IDS  # мы создадим этот список в config.py
+from config import ADMIN_IDS
 import logging
 
 logger = logging.getLogger(__name__)
@@ -16,9 +16,8 @@ async def add_tokens_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return ConversationHandler.END
 
     await update.message.reply_text(
-        "🔹 Введите **user_id** пользователя, которому хотите начислить жетоны:\n"
-        "(можно узнать через @userinfobot)",
-        parse_mode='Markdown'
+        "🔹 Введите user_id пользователя, которому хотите начислить жетоны:\n"
+        "(можно узнать через @userinfobot)"
     )
     return ASK_USER_ID
 
@@ -32,7 +31,7 @@ async def ask_user_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     context.user_data['target_user_id'] = target_user_id
     await update.message.reply_text(
-        "🔹 Введите **количество жетонов** для начисления:"
+        "🔹 Введите количество жетонов для начисления:"
     )
     return ASK_AMOUNT
 
@@ -50,18 +49,15 @@ async def ask_amount(update: Update, context: ContextTypes.DEFAULT_TYPE):
     db = await get_db()
     await db.add_tokens(target_user_id, amount)
 
-    # Сообщение админу
     await update.message.reply_text(
-        f"✅ Начислено **{amount}** жетонов пользователю `{target_user_id}`.",
-        parse_mode='Markdown'
+        f"✅ Начислено {amount} жетонов пользователю {target_user_id}."
     )
 
-    # Уведомление пользователя (если бот может ему написать)
+    # Попытка уведомить пользователя
     try:
         await context.bot.send_message(
             chat_id=target_user_id,
-            text=f"🎁 Вам начислено **{amount}** жетонов! Спасибо, что пользуетесь ботом.",
-            parse_mode='Markdown'
+            text=f"🎁 Вам начислено {amount} жетонов! Спасибо, что пользуетесь ботом."
         )
     except Exception as e:
         logger.warning(f"Не удалось уведомить пользователя {target_user_id}: {e}")

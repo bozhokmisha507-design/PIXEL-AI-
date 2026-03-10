@@ -75,27 +75,22 @@ async def my_tokens_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # ===== Фоновая задача для генерации парного фото =====
 async def generate_couple_in_background(user_id: int, bot: Bot, db, label: str):
-    """Генерирует парное фото в фоне и отправляет результат."""
+    """Генерирует парное фото в фоне, если данные есть, иначе — ничего не делает."""
     try:
         await asyncio.sleep(2)
         order_data = await db.get_order_data(label)
         if not order_data:
-            logger.error(f"❌ Нет данных для заказа {label}")
-            await bot.send_message(
-                chat_id=user_id,
-                text="❌ Не удалось найти данные для генерации. Пожалуйста, обратитесь в поддержку."
-            )
+            # ❌ НЕ отправляем сообщение об ошибке — просто логируем и выходим
+            logger.warning(f"⚠️ Нет данных для заказа {label}, пропускаем фоновую генерацию")
             return
 
         from handlers.couple import generate_couple_photo_from_data
         await generate_couple_photo_from_data(user_id, bot, db, order_data)
-        
+
     except Exception as e:
         logger.error(f"❌ Ошибка в фоновой генерации: {e}", exc_info=True)
-        await bot.send_message(
-            chat_id=user_id,
-            text="❌ Произошла ошибка при генерации фото. Мы уже работаем над её исправлением."
-        )
+        # ❌ Тоже не отправляем пользователю — он уже получил уведомление
+    
 
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if context.args and context.args[0].startswith("payment_"):

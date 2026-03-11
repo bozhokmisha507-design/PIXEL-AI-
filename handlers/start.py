@@ -10,7 +10,7 @@ import asyncio
 logger = logging.getLogger(__name__)
 
 # ⚠️ ВАШ FILE_ID ДЛЯ ПРИВЕТСТВИЯ (можно менять на любой)
-WELCOME_MEDIA_FILE_ID = "AgACAgIAAxkBAAIJrWmu461-3ELaxHLdZcKU79anbT35AAIEFWsbBDJ4SUnNG0WVV7UPAQADAgADeQADOgQ"
+WELCOME_MEDIA_FILE_ID = "BAACAgIAAxkBAAILeWmxp2MzRyw3Le1ev90Smpnf1p6WAAJsoQAC4f-JSdXBkn0yL1tUOgQ"
 
 async def send_welcome_message(chat_id: int, first_name: str, bot: Bot):
     """Отправляет приветственное медиа (фото/видео/GIF) с подписью и главным меню."""

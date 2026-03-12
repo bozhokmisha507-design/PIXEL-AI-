@@ -245,8 +245,8 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             [InlineKeyboardButton("🤵🏼‍♀️ Женский", callback_data="set_gender_female")]
         ]
         await update.message.reply_text(
-            "Пожалуйста, укажите ваш пол, чтобы мы могли подбирать стили правильно:",
-            reply_markup=InlineKeyboardMarkup(keyboard)
+         "Пожалуйста, укажите ваш пол, чтобы мы могли подбирать стили правильно:",
+         reply_markup=InlineKeyboardMarkup(keyboard)
         )
         return
 

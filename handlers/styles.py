@@ -98,7 +98,8 @@ async def style_selected_callback(update: Update, context: ContextTypes.DEFAULT_
     # Предлагаем выбор модели/качества
     keyboard = [
         [InlineKeyboardButton("🚀 Gemini (базовое) – 38₽", callback_data="select_model_gemini")],
-        [InlineKeyboardButton("💎 GPT Image High (премиум) – 76₽", callback_data="select_model_gpt")]
+        [InlineKeyboardButton("💎 GPT Image High (премиум) – 76₽", callback_data="select_model_gpt")],
+        [InlineKeyboardButton("🍌 Nano Banana Pro (премиум-портрет) – 75₽", callback_data="select_model_nanobanana")]  # новая кнопка
     ]
     await query.edit_message_text(
         f"✅ Стиль «{style['name']}» выбран.\n\n"
@@ -108,10 +109,7 @@ async def style_selected_callback(update: Update, context: ContextTypes.DEFAULT_
 
 async def model_selected_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
-    if query is None or query.data is None:
-        return
     await query.answer()
-
     user_id = update.effective_user.id
     choice = query.data.replace("select_model_", "")
     context.user_data['selected_model'] = choice
@@ -119,10 +117,22 @@ async def model_selected_callback(update: Update, context: ContextTypes.DEFAULT_
     db = await get_db()
     tokens = await db.get_user_tokens(user_id)
 
-    price = Config.PRICE_PER_GENERATION if choice == "gemini" else Config.PRICE_PREMIUM
-    model_name = "Gemini" if choice == "gemini" else "GPT Image High"
-
-    token_cost = Config.TOKEN_COST_GEMINI if choice == "gemini" else Config.TOKEN_COST_GPT
+    # Определяем цену и стоимость в жетонах в зависимости от выбора
+    if choice == "gemini":
+        price = Config.PRICE_PER_GENERATION
+        token_cost = Config.TOKEN_COST_GEMINI
+        model_name = "Gemini"
+    elif choice == "gpt":
+        price = Config.PRICE_PREMIUM
+        token_cost = Config.TOKEN_COST_GPT
+        model_name = "GPT Image High"
+    elif choice == "nanobanana":
+        price = Config.PRICE_NANOBANANA
+        token_cost = Config.TOKEN_COST_NANOBANANA
+        model_name = "Nano Banana Pro"
+    else:
+        await query.edit_message_text("❌ Неизвестная модель.")
+        return
 
     # Формируем клавиатуру
     keyboard = []
@@ -142,10 +152,7 @@ async def model_selected_callback(update: Update, context: ContextTypes.DEFAULT_
 
 async def use_token_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
-    if query is None:
-        return
     await query.answer()
-
     user_id = update.effective_user.id
     db = await get_db()
 
@@ -155,16 +162,23 @@ async def use_token_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
         await query.edit_message_text("❌ Сначала выберите стиль.")
         return
 
-    token_cost = Config.TOKEN_COST_GEMINI if model_choice == "gemini" else Config.TOKEN_COST_GPT
+    # Определяем стоимость в жетонах
+    if model_choice == "gemini":
+        token_cost = Config.TOKEN_COST_GEMINI
+    elif model_choice == "gpt":
+        token_cost = Config.TOKEN_COST_GPT
+    elif model_choice == "nanobanana":
+        token_cost = Config.TOKEN_COST_NANOBANANA
+    else:
+        await query.edit_message_text("❌ Неизвестная модель.")
+        return
 
     if not await db.use_tokens(user_id, token_cost):
         await query.edit_message_text("❌ Недостаточно жетонов.")
         return
 
     await query.edit_message_text("⏳ Генерация с использованием жетонов...")
-
     await generate_photo_with_tokens(user_id, context.bot, db, context, style_key, model_choice)
-
 async def generate_photo_with_tokens(user_id: int, bot: Bot, db, context, style_key: str, model_choice: str):
     try:
         style = Config.STYLES.get(style_key)
@@ -183,12 +197,18 @@ async def generate_photo_with_tokens(user_id: int, bot: Bot, db, context, style_
         gender = await db.get_user_gender(user_id)
 
         if model_choice == 'gemini':
-            service = AITunnelService()
+            service = AITunnelService(model_type="gemini")  # по умолчанию использует модель из Config
             logger.info(f"Generating with Gemini (tokens) for user {user_id}")
-        else:
-            # ✅ ИСПРАВЛЕНО: размер 1536x1024 (горизонтальный)
-            service = AITunnelService(model_type="gpt", quality="high", size="1536x1024")
+        elif model_choice == 'gpt':
+            service = AITunnelService(model_type="gpt", quality="high", size="1024x1024")
             logger.info(f"Generating with GPT (tokens) for user {user_id}")
+        elif model_choice == 'nanobanana':
+            # Для Nano Banana Pro создаём сервис, но в generate_photos будем обрабатывать отдельно
+            service = AITunnelService(model_type="nanobanana")
+            logger.info(f"Generating with Nano Banana Pro (tokens) for user {user_id}")
+        else:
+            await bot.send_message(chat_id=user_id, text="❌ Неизвестная модель.")
+            return
 
         results = await service.generate_photos(
             user_photo_paths=photo_paths,

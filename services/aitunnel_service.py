@@ -15,6 +15,7 @@ class AITunnelService:
         self.quality = quality
         self.size = size  # для GPT Image горизонтальный формат
 
+    # ---------- Одиночные фото (Gemini 3.1 Flash, GPT Image, Nano Banana Pro) ----------
     async def generate_photos(self, user_photo_paths: list, style_key: str, num_images: int = 1, gender=None) -> list:
         style = Config.STYLES.get(style_key)
         if not style:
@@ -51,16 +52,16 @@ class AITunnelService:
         elif style_key == "editorial_studio":
             if gender == 'male':
                 prompt = (
-                    "Elegant fashion studio portrait of a man on a clean beige background, "
-                    "cinematic bright studio lighting, wearing white shoes, light jeans, and a light gray shirt, "
-                    "high-end fashion magazine style, 8k, photorealistic, face clearly visible, professional retouching"
+                    "Hyper-realistic studio photography on a beige background, cinematic bright expensive lighting, "
+                    "sitting on a soft ottoman in full length, wearing white shoes, light jeans, and a light gray unbuttoned shirt, "
+                    "like in a high-end fashion magazine, 8k, photorealistic, face clearly visible, professional retouching"
                 )
             elif gender == 'female':
                 prompt = (
-                    "Elegant fashion studio portrait of a woman on a clean beige background, "
-                    "cinematic bright studio lighting, sitting gracefully on a modern ottoman, "
-                    "wearing a stylish powder-colored dress and beige shoes, holding a bouquet of white roses, "
-                    "high-end fashion magazine style, 8k, photorealistic, face clearly visible, professional retouching"
+                    "Hyper-realistic studio photography on a beige background, cinematic bright expensive lighting, "
+                    "sitting on a soft ottoman, full body or close-up, wearing beige shoes and a powder-colored dress, "
+                    "sometimes holding a bouquet of large white roses, like in a high-end fashion magazine, 8k, photorealistic, "
+                    "face clearly visible, professional retouching, varied composition"
                 )
             else:
                 prompt = base_prompt.replace("{token}", "this person")
@@ -91,7 +92,7 @@ class AITunnelService:
                 subject = "this person"
             prompt = base_prompt.replace("{token}", subject)
 
-        # Добавляем указание на горизонтальный формат для Gemini
+        # Добавляем указание на горизонтальный формат для Gemini (но для Nano Banana тоже добавим отдельно)
         if self.model_type == "gemini":
             prompt += " Landscape orientation, horizontal composition, aspect ratio 16:9, wide format."
 
@@ -134,7 +135,7 @@ class AITunnelService:
                             "Content-Type": "application/json"
                         }
                         payload = {
-                            "model": Config.AITUNNEL_IMAGE_MODEL,
+                            "model": Config.AITUNNEL_IMAGE_MODEL,  # gemini-3.1-flash-image-preview
                             "messages": [
                                 {
                                     "role": "user",
@@ -161,8 +162,6 @@ class AITunnelService:
                                         for img in message['images']:
                                             if 'image_url' in img and 'url' in img['image_url']:
                                                 results.append(img['image_url']['url'])
-                                            elif 'b64_json' in img:
-                                                results.append(f"data:image/png;base64,{img['b64_json']}")
                                     elif 'content' in message and message['content'].startswith('data:image'):
                                         results.append(message['content'])
                                     else:
@@ -172,7 +171,8 @@ class AITunnelService:
                                 logger.error(f"❌ Ошибка Gemini: {resp.status}")
                 except Exception as e:
                     logger.error(f"❌ Ошибка генерации Gemini: {e}", exc_info=True)
-        else:
+
+        elif self.model_type == "gpt":
             # ---------- GPT Image через /images/edits ----------
             for i in range(num_images):
                 try:
@@ -209,35 +209,25 @@ class AITunnelService:
                 except Exception as e:
                     logger.error(f"❌ Ошибка при генерации GPT Image: {e}", exc_info=True)
 
-        logger.info(f"✅ Генерация завершена, получено {len(results)} фото")
-        return results
-
-    # ---------- НОВЫЙ МЕТОД ДЛЯ КАСТОМНОГО ПРОМПТА ----------
-    async def generate_custom_photo(self, user_photo_paths: list, prompt: str, num_images: int = 1) -> list:
-        """Генерация по кастомному промпту на основе одного референсного фото."""
-        # Находим первый существующий файл
-        ref_photo_path = None
-        for path in user_photo_paths:
-            if os.path.exists(path):
-                ref_photo_path = path
-                logger.info(f"✅ Используем референс фото: {ref_photo_path}")
-                break
-            else:
-                logger.warning(f"⚠️ Файл не найден: {path}")
-
-        if not ref_photo_path:
-            logger.error("❌ Ни одно из фото пользователя не найдено на диске")
-            return []
-
-        results = []
-        if self.model_type == "gemini":
+        elif self.model_type == "nanobanana":
+            # ---------- Nano Banana Pro для одиночных фото ----------
             try:
                 with open(ref_photo_path, "rb") as f:
                     image_data = base64.b64encode(f.read()).decode("utf-8")
                     data_url = f"data:image/jpeg;base64,{image_data}"
             except Exception as e:
-                logger.error(f"❌ Ошибка кодирования фото: {e}")
+                logger.error(f"❌ Ошибка кодирования фото для Nano Banana: {e}")
                 return []
+
+            # Улучшенный промпт для портретов
+            enhanced_prompt = (
+                f"{prompt} Ultra-realistic, cinematic lighting, "
+                f"exact facial features as in reference image, "
+                f"face clearly visible, sharp focus on face, "
+                f"4K resolution, professional photography style, "
+                f"perfect facial similarity. "
+                f"Landscape orientation, horizontal composition, aspect ratio 16:9, wide format."
+            )
 
             for i in range(num_images):
                 try:
@@ -247,24 +237,24 @@ class AITunnelService:
                             "Content-Type": "application/json"
                         }
                         payload = {
-                            "model": Config.AITUNNEL_IMAGE_MODEL,
+                            "model": "gemini-3-pro-image-preview",  # Nano Banana Pro
                             "messages": [
                                 {
                                     "role": "user",
                                     "content": [
                                         {"type": "image_url", "image_url": {"url": data_url}},
-                                        {"type": "text", "text": prompt}
+                                        {"type": "text", "text": enhanced_prompt}
                                     ]
                                 }
                             ],
                             "modalities": ["image", "text"],
-                            "max_tokens": 1000
+                            "max_tokens": 3000
                         }
                         async with session.post(
                             f"{self.base_url}/chat/completions",
                             headers=headers,
                             json=payload,
-                            timeout=aiohttp.ClientTimeout(total=60)
+                            timeout=aiohttp.ClientTimeout(total=90)
                         ) as resp:
                             if resp.status == 200:
                                 result = await resp.json()
@@ -279,127 +269,99 @@ class AITunnelService:
                                     elif 'content' in message and message['content'].startswith('data:image'):
                                         results.append(message['content'])
                                     else:
-                                        logger.warning("⚠️ Нет изображения в ответе")
+                                        logger.warning("⚠️ Нет изображения в ответе Nano Banana")
                             else:
                                 error_text = await resp.text()
-                                logger.error(f"❌ Ошибка Gemini: {resp.status}")
+                                logger.error(f"❌ Ошибка Nano Banana Pro: {resp.status} - {error_text}")
                 except Exception as e:
-                    logger.error(f"❌ Ошибка генерации Gemini: {e}", exc_info=True)
-        else:
-            # GPT Image
-            for i in range(num_images):
-                try:
-                    async with aiohttp.ClientSession() as session:
-                        form_data = aiohttp.FormData()
-                        form_data.add_field('model', 'gpt-image-1.5')
-                        with open(ref_photo_path, 'rb') as f:
-                            image_bytes = f.read()
-                        form_data.add_field('image[]', image_bytes, filename='photo.jpg', content_type='image/jpeg')
-                        form_data.add_field('prompt', prompt)
-                        form_data.add_field('quality', self.quality)
-                        form_data.add_field('size', self.size)
-                        form_data.add_field('n', str(num_images))
+                    logger.error(f"❌ Ошибка при генерации Nano Banana Pro: {e}", exc_info=True)
 
-                        headers = {
-                            "Authorization": f"Bearer {self.api_key}"
-                        }
-                        async with session.post(
-                            f"{self.base_url}/images/edits",
-                            headers=headers,
-                            data=form_data
-                        ) as resp:
-                            if resp.status == 200:
-                                data = await resp.json()
-                                if 'data' in data:
-                                    for item in data['data']:
-                                        if 'b64_json' in item:
-                                            results.append(f"data:image/png;base64,{item['b64_json']}")
-                                        elif 'url' in item:
-                                            results.append(item['url'])
-                            else:
-                                error_text = await resp.text()
-                                logger.error(f"❌ Ошибка GPT Image: {resp.status} - {error_text}")
-                except Exception as e:
-                    logger.error(f"❌ Ошибка при генерации GPT Image: {e}", exc_info=True)
-
-        logger.info(f"✅ Кастомная генерация завершена, получено {len(results)} фото")
+        logger.info(f"✅ Генерация завершена, получено {len(results)} фото")
         return results
 
-    # ---------- ПАРНАЯ ГЕНЕРАЦИЯ ----------
-    async def generate_couple_photo(self, male_photo_path: str, female_photo_path: str, prompt: str, num_images: int = 1) -> list:
+    # ---------- ПАРНЫЕ ФОТО через Nano Banana Pro (gemini-3-pro-image-preview) ----------
+    async def generate_couple_photo_nanobanana(
+        self,
+        male_photo_path: str,
+        female_photo_path: str,
+        prompt: str,
+        resolution: str = "2K"
+    ) -> list:
         """
-        Генерация парного фото на основе двух референсных изображений (мужчины и женщины).
-        Использует ту же модель (gemini), но передаёт оба изображения в запрос.
+        Генерация парного фото через Nano Banana Pro (gemini-3-pro-image-preview)
+        с высоким качеством и сохранением лиц.
         """
         try:
             with open(male_photo_path, "rb") as f:
                 male_data = base64.b64encode(f.read()).decode("utf-8")
-                male_url = f"data:image/jpeg;base64,{male_data}"
             with open(female_photo_path, "rb") as f:
                 female_data = base64.b64encode(f.read()).decode("utf-8")
-                female_url = f"data:image/jpeg;base64,{female_data}"
+
+            # Карта разрешений (если API поддерживает)
+            resolution_map = {
+                "1K": "1024x1024",
+                "2K": "2048x2048",
+                "4K": "4096x4096"
+            }
+            size = resolution_map.get(resolution, "2048x2048")
+
+            # Улучшенный промпт с явным требованием горизонтального формата
+            enhanced_prompt = (
+                f"{prompt} Ultra-realistic, cinematic lighting, "
+                f"exact facial features as in reference images, "
+                f"both faces clearly visible, sharp focus on faces, "
+                f"4K resolution, professional photography style, "
+                f"consistent characters, perfect facial similarity. "
+                f"Landscape orientation, horizontal composition, aspect ratio 16:9, wide format."
+            )
+
+            async with aiohttp.ClientSession() as session:
+                headers = {
+                    "Authorization": f"Bearer {self.api_key}",
+                    "Content-Type": "application/json"
+                }
+                # Используем модель gemini-3-pro-image-preview (Nano Banana Pro)
+                payload = {
+                    "model": "gemini-3-pro-image-preview",
+                    "messages": [
+                        {
+                            "role": "user",
+                            "content": [
+                                {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{male_data}"}},
+                                {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{female_data}"}},
+                                {"type": "text", "text": enhanced_prompt}
+                            ]
+                        }
+                    ],
+                    "modalities": ["image", "text"],
+                    "max_tokens": 3000,
+                    # Если API принимает размер, можно передать:
+                    # "size": size
+                }
+                async with session.post(
+                    f"{self.base_url}/chat/completions",
+                    headers=headers,
+                    json=payload,
+                    timeout=aiohttp.ClientTimeout(total=90)
+                ) as resp:
+                    if resp.status == 200:
+                        result = await resp.json()
+                        images = []
+                        if 'choices' in result and result['choices']:
+                            message = result['choices'][0].get('message', {})
+                            if 'images' in message:
+                                for img in message['images']:
+                                    if 'image_url' in img and 'url' in img['image_url']:
+                                        images.append(img['image_url']['url'])
+                                    elif 'b64_json' in img:
+                                        images.append(f"data:image/png;base64,{img['b64_json']}")
+                            elif 'content' in message and message['content'].startswith('data:image'):
+                                images.append(message['content'])
+                        return images
+                    else:
+                        error_text = await resp.text()
+                        logger.error(f"❌ Ошибка Nano Banana Pro: {resp.status} - {error_text}")
+                        return []
         except Exception as e:
-            logger.error(f"❌ Ошибка кодирования фото для парной генерации: {e}")
+            logger.error(f"❌ Ошибка при генерации Nano Banana Pro: {e}", exc_info=True)
             return []
-
-        results = []
-        for i in range(num_images):
-            try:
-                async with aiohttp.ClientSession() as session:
-                    headers = {
-                        "Authorization": f"Bearer {self.api_key}",
-                        "Content-Type": "application/json"
-                    }
-                    # Добавляем инструкцию горизонтального формата
-                    horizontal_instruction = " Landscape orientation, horizontal composition, aspect ratio 16:9, wide format."
-                    full_prompt = prompt + horizontal_instruction
-                    payload = {
-                        "model": Config.AITUNNEL_IMAGE_MODEL,
-                        "messages": [
-                            {
-                                "role": "user",
-                                "content": [
-                                    {"type": "image_url", "image_url": {"url": male_url}},
-                                    {"type": "image_url", "image_url": {"url": female_url}},
-                                    {"type": "text", "text": full_prompt}
-                                ]
-                            }
-                        ],
-                        "modalities": ["image", "text"],
-                        "max_tokens": 1000
-                    }
-                    async with session.post(
-                        f"{self.base_url}/chat/completions",
-                        headers=headers,
-                        json=payload,
-                        timeout=aiohttp.ClientTimeout(total=60)
-                    ) as resp:
-                        if resp.status == 200:
-                            result = await resp.json()
-                            if 'choices' in result and result['choices']:
-                                message = result['choices'][0].get('message', {})
-                                if 'images' in message:
-                                    for img in message['images']:
-                                        if 'image_url' in img and 'url' in img['image_url']:
-                                            results.append(img['image_url']['url'])
-                                        elif 'b64_json' in img:
-                                            results.append(f"data:image/png;base64,{img['b64_json']}")
-                                elif 'content' in message and message['content'].startswith('data:image'):
-                                    results.append(message['content'])
-                                else:
-                                    logger.warning("⚠️ Нет изображения в ответе")
-                            else:
-                                logger.error("❌ Нет choices в ответе")
-                        else:
-                            error_text = await resp.text()
-                            logger.error(f"❌ Ошибка Gemini при парной генерации: {resp.status} - {error_text}")
-            except Exception as e:
-                logger.error(f"❌ Ошибка при парной генерации: {e}", exc_info=True)
-
-        logger.info(f"✅ Парная генерация завершена, получено {len(results)} фото")
-        return results
-
-    @staticmethod
-    def _encode_image(image_path: str) -> str:
-        with open(image_path, "rb") as f:
-            return base64.b64encode(f.read()).decode("utf-8")

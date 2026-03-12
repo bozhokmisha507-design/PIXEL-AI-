@@ -3,23 +3,36 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+import os
+from dotenv import load_dotenv
+
+load_dotenv()
+
+import os
+from dotenv import load_dotenv
+
+load_dotenv()
+
 class Config:
     BOT_TOKEN = os.getenv("BOT_TOKEN", "")
     AITUNNEL_API_KEY = os.getenv("AITUNNEL_API_KEY", "")
-    AITUNNEL_IMAGE_MODEL = os.getenv("AITUNNEL_IMAGE_MODEL", "gemini-2.5-flash-image")
+    AITUNNEL_IMAGE_MODEL = os.getenv("AITUNNEL_IMAGE_MODEL", "gemini-3.1-flash-image-preview")
 
     # ЮMoney
     YOOMONEY_ACCESS_TOKEN = os.getenv("YOOMONEY_ACCESS_TOKEN")
     YOOMONEY_WALLET = os.getenv("YOOMONEY_WALLET", "")
     PRICE_PER_GENERATION = 38          # базовая цена (Gemini)
     PRICE_PREMIUM = 76                  # премиум цена (GPT Image High)
+    PRICE_NANOBANANA = 75                # цена для Nano Banana Pro (одиночные фото)
     PRICE_20_TOKENS = 700                # пакет 20 жетонов
-    COUPLE_PRICE = 40                     # цена парной генерации
-    COUPLE_TOKEN_COST = 1                  # стоимость в жетонах для пар
+    # Парные фото теперь генерируются через Nano Banana Pro (премиум-качество)
+    COUPLE_PRICE = 75                     # цена парной генерации
+    COUPLE_TOKEN_COST = 2                  # стоимость в жетонах для пар
 
     # Стоимость в жетонах для одиночных генераций
     TOKEN_COST_GEMINI = 1
     TOKEN_COST_GPT = 2
+    TOKEN_COST_NANOBANANA = 2
 
     # Telegram Payments (на будущее)
     PAYMENT_PROVIDER_TOKEN = os.getenv("PAYMENT_PROVIDER_TOKEN", "")
@@ -30,6 +43,9 @@ class Config:
     MIN_PHOTOS = 2
     MAX_PHOTOS = 5
     RECOMMENDED_PHOTOS = 4
+
+    # ==================== ВСЕ СТИЛИ ====================
+    STYLES = { ... }  # (оставляем без изменений, можно не копировать весь словарь)
 
     # ==================== ВСЕ СТИЛИ ====================
     STYLES = {

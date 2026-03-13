@@ -15,6 +15,9 @@ logger = logging.getLogger(__name__)
 # Состояния диалога
 PHOTO, PROMPT, MODEL_SELECT, CONFIRM = range(4)
 
+# Максимальное количество фото
+MAX_PHOTOS = 3
+
 # Цена и стоимость в жетонах для видео
 VIDEO_PRICE = 110
 VIDEO_TOKEN_COST = 3
@@ -29,10 +32,10 @@ async def video_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     context.user_data['video_photos'] = []
     await update.message.reply_text(
-        "🎬 *Создание видео из фото*\n\n"
-        "Сначала загрузите одно или несколько селфи (до 5).\n"
-        "Чем лучше качество фото, тем лучше получится видео.\n\n"
-        "Отправьте фото:",
+        f"🎬 *Создание видео из фото*\n\n"
+        f"Загрузите до {MAX_PHOTOS} селфи (можно одно).\n"
+        f"После каждого фото будет появляться кнопка «Готово», чтобы завершить загрузку досрочно.\n\n"
+        f"Отправьте фото:",
         parse_mode='Markdown'
     )
     return PHOTO
@@ -56,26 +59,49 @@ async def photo_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     photos = context.user_data.setdefault('video_photos', [])
     photos.append(file_path)
+    count = len(photos)
 
-    if len(photos) >= Config.MAX_PHOTOS:
+    if count >= MAX_PHOTOS:
+        # Достигнут лимит – переходим к промпту
         await update.message.reply_text(
-            f"✅ Загружено максимальное количество фото ({Config.MAX_PHOTOS}). Теперь введите описание видео."
+            f"✅ Загружено максимальное количество фото ({MAX_PHOTOS}). Теперь введите описание видео."
         )
         return await ask_prompt(update, context)
     else:
+        # Отправляем сообщение с инлайн-кнопкой "Готово"
+        keyboard = [[InlineKeyboardButton("✅ Готово", callback_data="video_done")]]
         await update.message.reply_text(
-            f"✅ Фото сохранено (загружено {len(photos)}/{Config.MAX_PHOTOS}).\n"
-            "Можете отправить ещё фото или введите /done, чтобы перейти к описанию."
+            f"✅ Фото сохранено (загружено {count}/{MAX_PHOTOS}).\n"
+            f"Можете отправить ещё фото или нажать кнопку «Готово».",
+            reply_markup=InlineKeyboardMarkup(keyboard)
         )
         return PHOTO
 
-async def done_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Пользователь закончил загружать фото (команда /done)."""
+async def done_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Обработка нажатия на кнопку «Готово» – переход к промпту."""
+    query = update.callback_query
+    await query.answer()
+
     photos = context.user_data.get('video_photos', [])
     if not photos:
-        await update.message.reply_text("❌ Вы не загрузили ни одного фото. Операция отменена.")
+        await query.edit_message_text("❌ Нет загруженных фото. Начните заново.")
         return ConversationHandler.END
-    return await ask_prompt(update, context)
+
+    await query.edit_message_text("✅ Переходим к описанию видео.")
+    # Переход к состоянию PROMPT
+    return await ask_prompt_from_callback(query, context)
+
+async def ask_prompt_from_callback(query, context):
+    """Вызывается из callback для перехода к PROMPT."""
+    # Отправляем новое сообщение с запросом промпта
+    await query.message.reply_text(
+        "✍️ *Введите описание видео*\n\n"
+        "Опишите, что должно происходить на видео. Например:\n"
+        "*«человек поворачивает голову и улыбается»*\n"
+        "*«медленно приближается камера, фон меняется на космический»*",
+        parse_mode='Markdown'
+    )
+    return PROMPT
 
 async def ask_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Запрашиваем текстовый промпт после загрузки фото."""
@@ -319,7 +345,7 @@ video_conv = ConversationHandler(
     states={
         PHOTO: [
             MessageHandler(filters.PHOTO, photo_handler),
-            CommandHandler("done", done_photo)
+            CallbackQueryHandler(done_callback, pattern="^video_done$")
         ],
         PROMPT: [MessageHandler(filters.TEXT & ~filters.COMMAND, prompt_handler)],
         MODEL_SELECT: [CallbackQueryHandler(model_selected_callback, pattern="^video_model_")],

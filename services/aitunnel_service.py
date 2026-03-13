@@ -365,3 +365,77 @@ class AITunnelService:
         except Exception as e:
             logger.error(f"❌ Ошибка при генерации Nano Banana Pro: {e}", exc_info=True)
             return []
+
+    # ---------- Видео Sora 2 Pro ----------
+    async def generate_video_sora(self, prompt: str, size: str = "1280x720", duration: int = 5) -> bytes | None:
+        """
+        Генерация видео через Sora 2 Pro (асинхронно с опросом статуса).
+        Возвращает байты видео или None при ошибке.
+        """
+        try:
+            async with aiohttp.ClientSession() as session:
+                headers = {
+                    "Authorization": f"Bearer {self.api_key}",
+                    "Content-Type": "application/json"
+                }
+
+                # 1. Создание задачи на генерацию видео
+                create_payload = {
+                    "model": "sora-2-pro",
+                    "prompt": prompt,
+                    "size": size,
+                    "seconds": duration,
+                }
+                # Уточните актуальный endpoint в документации AITunnel
+                async with session.post(
+                    f"{self.base_url}/videos/create",
+                    headers=headers,
+                    json=create_payload,
+                    timeout=aiohttp.ClientTimeout(total=30)
+                ) as resp:
+                    if resp.status != 200:
+                        error_text = await resp.text()
+                        logger.error(f"Ошибка создания видео: {resp.status} - {error_text}")
+                        return None
+                    create_result = await resp.json()
+                    video_id = create_result.get("id")
+                    if not video_id:
+                        logger.error("Нет video_id в ответе")
+                        return None
+
+                # 2. Ожидание завершения генерации
+                max_attempts = 60  # 5 минут (60 * 5 сек)
+                for attempt in range(max_attempts):
+                    await asyncio.sleep(5)
+                    async with session.get(
+                        f"{self.base_url}/videos/retrieve/{video_id}",
+                        headers=headers
+                    ) as resp:
+                        if resp.status != 200:
+                            logger.error(f"Ошибка получения статуса: {resp.status}")
+                            continue
+                        status_data = await resp.json()
+                        status = status_data.get("status")
+                        progress = status_data.get("progress")
+                        logger.info(f"Видео {video_id}: статус {status}, прогресс {progress}%")
+                        if status == "completed":
+                            # 3. Скачивание готового видео
+                            async with session.get(
+                                f"{self.base_url}/videos/download/{video_id}",
+                                headers=headers
+                            ) as download_resp:
+                                if download_resp.status == 200:
+                                    video_bytes = await download_resp.read()
+                                    logger.info(f"Видео {video_id} скачано, размер {len(video_bytes)} байт")
+                                    return video_bytes
+                                else:
+                                    logger.error(f"Ошибка скачивания видео: {download_resp.status}")
+                                    return None
+                        elif status == "failed":
+                            logger.error(f"Генерация видео {video_id} провалилась")
+                            return None
+                logger.error(f"Таймаут ожидания видео {video_id}")
+                return None
+        except Exception as e:
+            logger.error(f"Ошибка при генерации видео: {e}", exc_info=True)
+            return None

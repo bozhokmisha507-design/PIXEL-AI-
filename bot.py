@@ -24,8 +24,8 @@ from handlers.upload import upload_conversation
 from handlers.clean import clean_photos_handler
 from handlers.payment import buy_handler, buy_tokens_handler, buy_tokens_callback_handler, check_payments_job
 from handlers.couple import couple_conv
-from handlers.custom_prompt import custom_prompt_conv
-from handlers.admin import add_tokens_conv
+from handlers.video import video_conv  # <-- новый импорт
+
 from webhook_server import start_webhook_server
 
 logging.basicConfig(
@@ -35,7 +35,6 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 async def post_init(application: Application) -> None:
-    """Опционально: можно оставить для получения информации о боте."""
     try:
         bot_user = await application.bot.get_me()
         logger.info(f"🤖 Бот: @{bot_user.username}")
@@ -50,7 +49,6 @@ async def main_async():
     Config.ensure_dirs()
     logger.info("📁 Папки созданы/проверены")
 
-    # Инициализируем БД (PostgreSQL)
     try:
         db = await get_db()
         logger.info("✅ База данных PostgreSQL инициализирована")
@@ -70,9 +68,9 @@ async def main_async():
     application.add_handler(styles_handler)
     application.add_handler(upload_conversation)
     application.add_handler(couple_conv)
+    application.add_handler(video_conv)  # <-- новый ConversationHandler
     application.add_handler(secret_link_conv)
-    application.add_handler(custom_prompt_conv)
-    application.add_handler(add_tokens_conv)
+
     # Callback-обработчики
     application.add_handler(show_styles_cb)
     application.add_handler(style_selected_cb)
@@ -81,12 +79,12 @@ async def main_async():
     application.add_handler(buy_generation_cb)
     application.add_handler(CallbackQueryHandler(gender_callback, pattern="^set_gender_"))
     application.add_handler(buy_tokens_callback_handler)
-    
+
     # Команды
     application.add_handler(buy_handler)
     application.add_handler(buy_tokens_handler)
-    
-    # Обработчик кнопок главного меню (все кнопки)
+
+    # Обработчик кнопок главного меню (включая новую кнопку)
     application.add_handler(MessageHandler(
         filters.Text([
             "📤 Загрузить фото",
@@ -96,7 +94,9 @@ async def main_async():
             "🗑 Очистить селфи",
             "🏠 Главное меню",
             "👫 Парные фото",
-            "💎 Мои жетоны"
+            "💎 Мои жетоны",
+            "✍️ Свой промпт",      # ← добавлено
+            "🎬 Создать видео"
         ]),
         handle_main_menu_buttons
     ))
@@ -106,7 +106,6 @@ async def main_async():
     job_queue = application.job_queue
     job_queue.run_repeating(check_payments_job, interval=15, first=10)
 
-    # Запускаем веб-сервер
     asyncio.create_task(start_webhook_server(application.bot))
     logger.info("🌐 Веб-сервер запущен как фоновая задача")
 
@@ -128,7 +127,7 @@ async def main_async():
         await application.updater.stop()
         await application.stop()
         await application.shutdown()
-        
+
         if _db_instance:
             await _db_instance.close()
             logger.info("✅ Соединение с БД закрыто")

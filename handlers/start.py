@@ -25,9 +25,13 @@ async def send_welcome_message(chat_id: int, first_name: str, bot: Bot):
         f"👫 *Парные фото*\n"
         f"• Загрузи фото мужчины и женщины, выбери стиль\n"
         f"• Nano Banana Pro – 75₽ / 2 жетона (максимальное качество)\n\n"
+        f"🎬 *Видео*\n"
+        f"• Создание видео по текстовому описанию\n"
+        f"• Sora 2 Pro – 110₽ / 3 жетона\n\n"
         f"💎 *Жетоны*\n"
         f"• Пакет 20 жетонов – 700₽\n"
-        f"• Gemini = 1 жетон, GPT Image / Nano Banana = 2 жетона\n\n"
+        f"• Gemini = 1 жетон, GPT Image / Nano Banana = 2 жетона\n"
+        f"• Видео = 3 жетона\n\n"
         f"👇 Жми на кнопки ниже и пробуй!"
     )
 
@@ -50,9 +54,8 @@ async def send_welcome_message(chat_id: int, first_name: str, bot: Bot):
         logger.error(f"Ошибка отправки медиа: {e}")
         await bot.send_message(chat_id, text=welcome_text, parse_mode='Markdown', reply_markup=get_main_menu_keyboard())
 
-# ===== Функция для показа баланса жетонов (исправлена) =====
+# ===== Функция для показа баланса жетонов =====
 async def my_tokens_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Показывает баланс жетонов и предлагает купить ещё."""
     user_id = update.effective_user.id
     db = await get_db()
     tokens = await db.get_user_tokens(user_id)
@@ -61,86 +64,68 @@ async def my_tokens_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"💎 *Ваш баланс жетонов:* {tokens}\n\n"
         "• Gemini = 1 жетон\n"
         "• GPT Image High = 2 жетона\n"
-        "• Nano Banana Pro (одиночное) = 2 жетона\n"
-        "• Парные фото = 2 жетона"
+        "• Nano Banana Pro = 2 жетона\n"
+        "• Парные фото = 2 жетона\n"
+        "• Видео Sora = 3 жетона"
     )
-
     keyboard = [[InlineKeyboardButton("💎 Купить 20 жетонов за 700₽", callback_data="buy_tokens")]]
-
     await update.message.reply_text(
         text,
         parse_mode='Markdown',
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
 
-# ===== Фоновая задача для генерации парного фото =====
+# ===== Фоновая задача для парного фото =====
 async def generate_couple_in_background(user_id: int, bot: Bot, db, label: str):
-    """Генерирует парное фото в фоне, если данные есть, иначе — ничего не делает."""
     try:
         await asyncio.sleep(2)
         order_data = await db.get_order_data(label)
         if not order_data:
             logger.warning(f"⚠️ Нет данных для заказа {label}, пропускаем фоновую генерацию")
             return
-
         from handlers.couple import generate_couple_photo_from_data
         await generate_couple_photo_from_data(user_id, bot, db, order_data)
-
     except Exception as e:
         logger.error(f"❌ Ошибка в фоновой генерации: {e}", exc_info=True)
 
 # ===== Фоновая задача для кастомной генерации =====
 async def generate_custom_in_background(user_id: int, bot: Bot, db, data: dict):
-    """Генерирует фото по кастомному промпту в фоне."""
     try:
         from services.aitunnel_service import AITunnelService
         from utils.helpers import send_photo_or_fallback
-
         prompt = data.get('prompt')
         model = data.get('model', 'gemini')
         if not prompt:
             logger.error("Нет промпта в данных заказа")
             await bot.send_message(user_id, "❌ Не удалось найти промпт для генерации.")
             return
-
         photo_paths = await db.get_user_photos(user_id, "input")
         if not photo_paths:
             await bot.send_message(user_id, "❌ Не найдены ваши фото. Загрузите их через меню.")
             return
-
         gender = await db.get_user_gender(user_id)
-
-        # Адаптируем промпт с учётом пола
         if gender == 'male':
             full_prompt = f"Photo of this man. {prompt}"
         elif gender == 'female':
             full_prompt = f"Photo of this woman. {prompt}"
         else:
             full_prompt = f"Photo of this person. {prompt}"
-
-        # Добавляем инструкцию горизонтального формата
         full_prompt += " Landscape orientation, horizontal composition, aspect ratio 16:9, wide format."
-
         if model == 'gemini':
             service = AITunnelService()
-            logger.info(f"Custom generation with Gemini for user {user_id}")
         else:
             service = AITunnelService(model_type="gpt", quality="high", size="1024x1024")
-            logger.info(f"Custom generation with GPT for user {user_id}")
-
         results = await service.generate_custom_photo(
             user_photo_paths=photo_paths,
             prompt=full_prompt,
             num_images=1
         )
-
         if results:
             await bot.send_message(user_id, "✅ Ваше фото готово!")
             for image_data in results:
                 await send_photo_or_fallback(bot, user_id, image_data)
         else:
             await bot.send_message(user_id, "❌ Не удалось сгенерировать фото. Попробуйте позже.")
-
         await bot.send_message(
             chat_id=user_id,
             text="👇 *Главное меню*:",
@@ -154,10 +139,22 @@ async def generate_custom_in_background(user_id: int, bot: Bot, db, data: dict):
             "❌ Произошла ошибка при генерации. Мы уже работаем над её исправлением."
         )
 
-# ===== ОБНОВЛЁННАЯ ФУНКЦИЯ START_COMMAND =====
+# ===== Фоновая задача для видео =====
+async def generate_video_in_background(user_id: int, bot: Bot, db, label: str):
+    """Генерирует видео в фоне по данным заказа."""
+    try:
+        await asyncio.sleep(2)
+        order_data = await db.get_order_data(label)
+        if not order_data:
+            logger.warning(f"⚠️ Нет данных для заказа {label}, пропускаем фоновую генерацию видео")
+            return
+        from handlers.video import generate_video_from_data
+        await generate_video_from_data(user_id, bot, db, order_data)
+    except Exception as e:
+        logger.error(f"❌ Ошибка в фоновой генерации видео: {e}", exc_info=True)
+
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if context.args and context.args[0].startswith("payment_"):
-        # Обычная генерация
         label = context.args[0].replace("payment_", "")
         user_id = update.effective_user.id
         db = await get_db()
@@ -166,18 +163,15 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     elif context.args and context.args[0].startswith("couple_"):
-        # Парная генерация после оплаты
         label = context.args[0].replace("couple_", "")
         user_id = update.effective_user.id
         db = await get_db()
-
         if await db.is_order_processed(label):
             await update.message.reply_text(
                 "✅ Ваше парное фото уже было сгенерировано. Проверьте предыдущие сообщения.",
                 reply_markup=get_main_menu_keyboard()
             )
             return
-
         order_data = await db.get_order_data(label)
         if order_data:
             await update.message.reply_text(
@@ -186,7 +180,6 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 parse_mode='Markdown',
                 reply_markup=get_main_menu_keyboard()
             )
-
             asyncio.create_task(
                 generate_couple_in_background(user_id, context.bot, db, label)
             )
@@ -199,18 +192,15 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
 
     elif context.args and context.args[0].startswith("custom_"):
-        # Кастомная генерация после оплаты
         label = context.args[0].replace("custom_", "")
         user_id = update.effective_user.id
         db = await get_db()
-
         if await db.is_order_processed(label):
             await update.message.reply_text(
                 "✅ Ваше фото уже было сгенерировано. Проверьте предыдущие сообщения.",
                 reply_markup=get_main_menu_keyboard()
             )
             return
-
         order_data = await db.get_order_data(label)
         if order_data:
             await update.message.reply_text(
@@ -230,7 +220,39 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return
 
-    # --- ИЗМЕНЕНИЕ: всегда показываем выбор пола, даже если он уже есть ---
+    # НОВАЯ ВЕТКА ДЛЯ ВИДЕО
+    elif context.args and context.args[0].startswith("video_"):
+        label = context.args[0].replace("video_", "")
+        user_id = update.effective_user.id
+        db = await get_db()
+
+        if await db.is_order_processed(label):
+            await update.message.reply_text(
+                "✅ Ваше видео уже было сгенерировано. Проверьте предыдущие сообщения.",
+                reply_markup=get_main_menu_keyboard()
+            )
+            return
+
+        order_data = await db.get_order_data(label)
+        if order_data:
+            await update.message.reply_text(
+                "✅ Оплата получена! ⏳ *Начинаю генерацию видео...*\n\n"
+                "Это может занять до 2 минут. Пожалуйста, подождите.",
+                parse_mode='Markdown',
+                reply_markup=get_main_menu_keyboard()
+            )
+            asyncio.create_task(
+                generate_video_in_background(user_id, context.bot, db, label)
+            )
+            return
+        else:
+            await update.message.reply_text(
+                "✅ Оплата получена!",
+                reply_markup=get_main_menu_keyboard()
+            )
+            return
+
+    # Обычный запуск /start (без аргументов)
     if not update.message or not update.effective_user:
         return
 
@@ -240,7 +262,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     db = await get_db()
     await db.get_or_create_user(user_id, user.username, first_name)
 
-    # Больше не проверяем наличие пола, а сразу предлагаем выбрать
+    # Всегда показываем выбор пола
     keyboard = [
         [InlineKeyboardButton("🤵🏼‍♂️ Мужской", callback_data="set_gender_male")],
         [InlineKeyboardButton("🤵🏼‍♀️ Женский", callback_data="set_gender_female")]
@@ -257,13 +279,11 @@ async def gender_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     await query.answer()
     gender = query.data.replace("set_gender_", "")
-
     if update.effective_user is None:
         return
     user_id = update.effective_user.id
     db = await get_db()
     await db.set_user_gender(user_id, gender)
-
     await send_welcome_message(query.message.chat.id, update.effective_user.first_name, context.bot)
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -285,6 +305,11 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "3. Выбери стиль (пляж, свадьба, ужин и др.).\n"
         "4. Оплати 75₽ или используй 2 жетона.\n"
         "   *Генерация на Nano Banana Pro — лучшее качество для двух лиц*\n\n"
+        "**🎬 Видео**\n"
+        "1. Нажми «🎬 Создать видео» в главном меню.\n"
+        "2. Введи текстовое описание видео.\n"
+        "3. Оплати 110₽ или используй 3 жетона.\n"
+        "4. Подожди 1–2 минуты, видео придёт автоматически.\n\n"
         "**💎 Жетоны**\n"
         "• 20 жетонов = 700₽ (команда /buy20).\n"
         "• Тратятся так:\n"
@@ -292,6 +317,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "  - GPT Image High = 2 жетона\n"
         "  - Nano Banana Pro = 2 жетона\n"
         "  - Парные фото = 2 жетона\n"
+        "  - Видео = 3 жетона\n"
         "• Баланс можно посмотреть по кнопке «💎 Мои жетоны».\n\n"
         "**❓ Другие команды**\n"
         "• /start – главное меню\n"
@@ -307,7 +333,6 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 async def handle_main_menu_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Обработчик всех кнопок главного меню."""
     if not update.message or not update.effective_user:
         return
     text = update.message.text
@@ -336,10 +361,13 @@ async def handle_main_menu_buttons(update: Update, context: ContextTypes.DEFAULT
     elif text == "✍️ Свой промпт":
         from handlers.custom_prompt import custom_prompt_start
         await custom_prompt_start(update, context)
+    elif text == "🎬 Создать видео":  # новая кнопка
+        from handlers.video import video_start
+        await video_start(update, context)
 
-# ================== СЕКРЕТНАЯ КОМАНДА ДЛЯ ПОЛУЧЕНИЯ FILE_ID ==================
+# ================== СЕКРЕТНАЯ КОМАНДА ==================
 WAITING_MEDIA = 1
-AUTHORIZED_USERS = [955206480, 5063386675]  # ваши ID
+AUTHORIZED_USERS = [955206480, 5063386675]
 
 async def secret_get_link_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id

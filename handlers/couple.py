@@ -38,8 +38,8 @@ async def couple_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data['couple_photos'] = []
     await update.message.reply_text(
         "👫 *Парная генерация*\n\n"
-        "Сначала загрузи фото *мужчины* (чёткое селфи).\n"
-        "После этого я попрошу фото женщины.\n\n"
+        "Сначала загрузи фото **мужчины** (чёткое селфи).\n"
+        "После этого я попрошу фото **женщины**.\n\n"
         "Для отмены введите /cancel",
         parse_mode='Markdown'
     )
@@ -58,7 +58,7 @@ async def photo_male_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
     await file.download_to_drive(file_path)
     logger.info(f"Сохранено фото мужчины: {file_path}")
     context.user_data.setdefault('couple_photos', []).append(file_path)
-    await update.message.reply_text("✅ Фото мужчины сохранено. Теперь отправьте фото *женщины*.")
+    await update.message.reply_text("✅ Фото **мужчины** сохранено. Теперь отправьте фото **женщины**.")
     return PHOTO_FEMALE
 
 async def photo_female_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):

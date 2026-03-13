@@ -50,7 +50,7 @@ async def send_welcome_message(chat_id: int, first_name: str, bot: Bot):
         logger.error(f"Ошибка отправки медиа: {e}")
         await bot.send_message(chat_id, text=welcome_text, parse_mode='Markdown', reply_markup=get_main_menu_keyboard())
 
-# ===== Функция для показа баланса жетонов (с инлайн-кнопкой) =====
+# ===== Функция для показа баланса жетонов (исправлена) =====
 async def my_tokens_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Показывает баланс жетонов и предлагает купить ещё."""
     user_id = update.effective_user.id
@@ -61,11 +61,12 @@ async def my_tokens_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"💎 *Ваш баланс жетонов:* {tokens}\n\n"
         "• Gemini = 1 жетон\n"
         "• GPT Image High = 2 жетона\n"
-        "• Парные фото = 1 жетон"
+        "• Nano Banana Pro (одиночное) = 2 жетона\n"
+        "• Парные фото = 2 жетона"
     )
-    
+
     keyboard = [[InlineKeyboardButton("💎 Купить 20 жетонов за 700₽", callback_data="buy_tokens")]]
-    
+
     await update.message.reply_text(
         text,
         parse_mode='Markdown',
@@ -153,6 +154,7 @@ async def generate_custom_in_background(user_id: int, bot: Bot, db, data: dict):
             "❌ Произошла ошибка при генерации. Мы уже работаем над её исправлением."
         )
 
+# ===== ОБНОВЛЁННАЯ ФУНКЦИЯ START_COMMAND =====
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if context.args and context.args[0].startswith("payment_"):
         # Обычная генерация
@@ -184,7 +186,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 parse_mode='Markdown',
                 reply_markup=get_main_menu_keyboard()
             )
-            
+
             asyncio.create_task(
                 generate_couple_in_background(user_id, context.bot, db, label)
             )
@@ -228,7 +230,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return
 
-    # Обычный запуск /start (без аргументов)
+    # --- ИЗМЕНЕНИЕ: всегда показываем выбор пола, даже если он уже есть ---
     if not update.message or not update.effective_user:
         return
 
@@ -238,19 +240,16 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     db = await get_db()
     await db.get_or_create_user(user_id, user.username, first_name)
 
-    gender = await db.get_user_gender(user_id)
-    if gender is None:
-        keyboard = [
-            [InlineKeyboardButton("🤵🏼‍♂️ Мужской", callback_data="set_gender_male")],
-            [InlineKeyboardButton("🤵🏼‍♀️ Женский", callback_data="set_gender_female")]
-        ]
-        await update.message.reply_text(
-         "Пожалуйста, укажите ваш пол, чтобы мы могли подбирать стили правильно:",
-         reply_markup=InlineKeyboardMarkup(keyboard)
-        )
-        return
-
-    await send_welcome_message(update.effective_chat.id, first_name, context.bot)
+    # Больше не проверяем наличие пола, а сразу предлагаем выбрать
+    keyboard = [
+        [InlineKeyboardButton("🤵🏼‍♂️ Мужской", callback_data="set_gender_male")],
+        [InlineKeyboardButton("🤵🏼‍♀️ Женский", callback_data="set_gender_female")]
+    ]
+    await update.message.reply_text(
+        "Пожалуйста, укажите ваш пол, чтобы мы могли подбирать стили правильно:",
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+    return
 
 async def gender_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query

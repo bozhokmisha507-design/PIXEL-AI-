@@ -92,7 +92,7 @@ class AITunnelService:
                 subject = "this person"
             prompt = base_prompt.replace("{token}", subject)
 
-        # Добавляем указание на горизонтальный формат для Gemini (но для Nano Banana тоже добавим отдельно)
+        # Добавляем указание на горизонтальный формат для Gemini
         if self.model_type == "gemini":
             prompt += " Landscape orientation, horizontal composition, aspect ratio 16:9, wide format."
 
@@ -366,7 +366,7 @@ class AITunnelService:
             logger.error(f"❌ Ошибка при генерации Nano Banana Pro: {e}", exc_info=True)
             return []
 
-    # ---------- Видео Sora 2 Pro ----------
+    # ---------- Видео Sora 2 Pro (из текста) ----------
     async def generate_video_sora(self, prompt: str, size: str = "1280x720", duration: int = 5) -> bytes | None:
         """
         Генерация видео через Sora 2 Pro (асинхронно с опросом статуса).
@@ -386,9 +386,9 @@ class AITunnelService:
                     "size": size,
                     "seconds": duration,
                 }
-                # Уточните актуальный endpoint в документации AITunnel
+                # Исправленный эндпоинт
                 async with session.post(
-                    f"{self.base_url}/videos/create",
+                    f"{self.base_url}/v1/videos",  # <-- исправлено
                     headers=headers,
                     json=create_payload,
                     timeout=aiohttp.ClientTimeout(total=30)
@@ -407,8 +407,9 @@ class AITunnelService:
                 max_attempts = 60  # 5 минут (60 * 5 сек)
                 for attempt in range(max_attempts):
                     await asyncio.sleep(5)
+                    # Исправленный эндпоинт для статуса
                     async with session.get(
-                        f"{self.base_url}/videos/retrieve/{video_id}",
+                        f"{self.base_url}/v1/videos/{video_id}",  # <-- исправлено
                         headers=headers
                     ) as resp:
                         if resp.status != 200:
@@ -420,8 +421,9 @@ class AITunnelService:
                         logger.info(f"Видео {video_id}: статус {status}, прогресс {progress}%")
                         if status == "completed":
                             # 3. Скачивание готового видео
+                            # Исправленный эндпоинт для скачивания
                             async with session.get(
-                                f"{self.base_url}/videos/download/{video_id}",
+                                f"{self.base_url}/v1/videos/{video_id}/content",  # <-- исправлено
                                 headers=headers
                             ) as download_resp:
                                 if download_resp.status == 200:
@@ -438,4 +440,87 @@ class AITunnelService:
                 return None
         except Exception as e:
             logger.error(f"Ошибка при генерации видео: {e}", exc_info=True)
+            return None
+
+    # ---------- Видео Sora 2 Pro (из изображения, Image-to-Video) ----------
+    async def generate_video_sora_i2v(self, image_paths: list, prompt: str, size: str = "1280x720", duration: int = 5) -> bytes | None:
+        """
+        Генерация видео из изображения(й) через Sora 2 Pro (Image-to-Video).
+        image_paths – список путей к фото (используется первое).
+        Возвращает байты видео или None при ошибке.
+        """
+        try:
+            # Берём первое изображение
+            image_path = image_paths[0]
+            with open(image_path, 'rb') as f:
+                image_bytes = f.read()
+
+            async with aiohttp.ClientSession() as session:
+                headers = {
+                    "Authorization": f"Bearer {self.api_key}"
+                    # Content-Type будет установлен автоматически для multipart
+                }
+                # Формируем multipart-запрос согласно примеру AITunnel
+                form_data = aiohttp.FormData()
+                form_data.add_field('model', 'sora-2-pro')
+                form_data.add_field('prompt', prompt)
+                form_data.add_field('size', size)
+                form_data.add_field('seconds', str(duration))
+                form_data.add_field('input_reference', image_bytes, filename='image.jpg', content_type='image/jpeg')
+                # Если нужно несколько изображений, можно добавить ещё полей 'input_reference'
+
+                # 1. Создание задачи (используем тот же исправленный эндпоинт)
+                async with session.post(
+                    f"{self.base_url}/v1/videos",  # <-- исправлено
+                    headers=headers,
+                    data=form_data,
+                    timeout=aiohttp.ClientTimeout(total=30)
+                ) as resp:
+                    if resp.status != 200:
+                        error_text = await resp.text()
+                        logger.error(f"Ошибка создания видео (I2V): {resp.status} - {error_text}")
+                        return None
+                    create_result = await resp.json()
+                    video_id = create_result.get("id")
+                    if not video_id:
+                        logger.error("Нет video_id в ответе")
+                        return None
+
+                # 2. Ожидание завершения
+                max_attempts = 60  # 5 минут
+                for attempt in range(max_attempts):
+                    await asyncio.sleep(5)
+                    # Исправленный эндпоинт для статуса
+                    async with session.get(
+                        f"{self.base_url}/v1/videos/{video_id}",  # <-- исправлено
+                        headers={"Authorization": f"Bearer {self.api_key}"}
+                    ) as resp:
+                        if resp.status != 200:
+                            logger.error(f"Ошибка получения статуса: {resp.status}")
+                            continue
+                        status_data = await resp.json()
+                        status = status_data.get("status")
+                        progress = status_data.get("progress")
+                        logger.info(f"Видео {video_id}: статус {status}, прогресс {progress}%")
+                        if status == "completed":
+                            # 3. Скачивание
+                            # Исправленный эндпоинт для скачивания
+                            async with session.get(
+                                f"{self.base_url}/v1/videos/{video_id}/content",  # <-- исправлено
+                                headers={"Authorization": f"Bearer {self.api_key}"}
+                            ) as download_resp:
+                                if download_resp.status == 200:
+                                    video_bytes = await download_resp.read()
+                                    logger.info(f"Видео {video_id} скачано, размер {len(video_bytes)} байт")
+                                    return video_bytes
+                                else:
+                                    logger.error(f"Ошибка скачивания видео: {download_resp.status}")
+                                    return None
+                        elif status == "failed":
+                            logger.error(f"Генерация видео {video_id} провалилась")
+                            return None
+                logger.error(f"Таймаут ожидания видео {video_id}")
+                return None
+        except Exception as e:
+            logger.error(f"Ошибка при генерации видео (I2V): {e}", exc_info=True)
             return None

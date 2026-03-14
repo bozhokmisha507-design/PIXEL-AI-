@@ -368,82 +368,65 @@ class AITunnelService:
             logger.error(f"❌ Ошибка при генерации Nano Banana Pro: {e}", exc_info=True)
             return []
 
-            # ---------- Видео Sora 2 Pro (из изображения, Image-to-Video) ----------
+            # ---------- Видео Sora 2 Pro (из изображения, Image-to-Video) через OpenAI-клиент ----------
     async def generate_video_sora_i2v(self, image_paths: list, prompt: str, size: str = "1280x720", duration: int = 5) -> bytes | None:
         """
-        Генерация видео из изображения(й) через Sora 2 Pro.
-        Использует прямой POST с JSON, где input_reference передаётся как объект {file: data_url}.
+        Генерация видео через Sora 2 Pro с использованием официального OpenAI-клиента.
+        image_paths – список путей к фото (используется первое).
+        Возвращает байты видео или None при ошибке.
         """
         try:
-            # Берём первое изображение и кодируем в base64
-            image_path = image_paths[0]
-            with open(image_path, "rb") as f:
-                image_base64 = base64.b64encode(f.read()).decode("utf-8")
-            data_url = f"data:image/jpeg;base64,{image_base64}"
+            loop = asyncio.get_event_loop()
+            client = OpenAI(
+                api_key=self.api_key,
+                base_url=self.base_url
+            )
 
-            async with aiohttp.ClientSession() as session:
-                headers = {
-                    "Authorization": f"Bearer {self.api_key}",
-                    "Content-Type": "application/json"
-                }
-                # Формируем JSON-запрос: input_reference как объект с ключом file
-                payload = {
-                    "model": "sora-2-pro",
-                    "prompt": prompt,
-                    "size": size,
-                    "seconds": duration,
-                    "input_reference": {"file": data_url}  # ← ключ file
-                }
-                # 1. Создание задачи
-                async with session.post(
-                    f"{self.base_url}/videos",
-                    headers=headers,
-                    json=payload,
-                    timeout=aiohttp.ClientTimeout(total=30)
-                ) as resp:
-                    if resp.status != 200:
-                        error_text = await resp.text()
-                        logger.error(f"Ошибка создания видео (I2V): {resp.status} - {error_text}")
-                        return None
-                    create_result = await resp.json()
-                    video_id = create_result.get("id")
-                    if not video_id:
-                        logger.error("Нет video_id в ответе")
-                        return None
+            # Функция для создания видео (открывает файл и вызывает API)
+            def create_video_task():
+                with open(image_paths[0], 'rb') as img_file:
+                    return client.videos.create(
+                        model="sora-2-pro",
+                        prompt=prompt,
+                        size=size,
+                        seconds=str(duration),
+                        input_reference=img_file
+                    )
 
-                # 2. Ожидание завершения
-                max_attempts = 60
-                for attempt in range(max_attempts):
-                    await asyncio.sleep(5)
-                    async with session.get(
-                        f"{self.base_url}/videos/{video_id}",
-                        headers=headers
-                    ) as resp:
-                        if resp.status != 200:
-                            logger.error(f"Ошибка получения статуса: {resp.status}")
-                            continue
-                        status_data = await resp.json()
-                        status = status_data.get("status")
-                        progress = status_data.get("progress")
-                        logger.info(f"Видео {video_id}: статус {status}, прогресс {progress}%")
-                        if status == "completed":
-                            # 3. Скачивание готового видео
-                            async with session.get(
-                                f"{self.base_url}/videos/{video_id}/content",
-                                headers=headers
-                            ) as download_resp:
-                                if download_resp.status == 200:
-                                    video_bytes = await download_resp.read()
-                                    logger.info(f"Видео {video_id} скачано, размер {len(video_bytes)} байт")
-                                    return video_bytes
-                                else:
-                                    logger.error(f"Ошибка скачивания видео: {download_resp.status}")
-                                    return None
-                        elif status == "failed":
-                            logger.error(f"Генерация видео {video_id} провалилась")
-                            return None
-                logger.error(f"Таймаут ожидания видео {video_id}")
-                return None
+            # Запускаем в потоке
+            video = await loop.run_in_executor(None, create_video_task)
+            video_id = video.id
+            logger.info(f"✅ Видеозадача создана, ID: {video_id}")
+
+            # Ожидание завершения
+            max_attempts = 60  # примерно 5 минут
+            for attempt in range(max_attempts):
+                await asyncio.sleep(5)
+
+                # Функция получения статуса
+                def get_status():
+                    return client.videos.retrieve(video_id)
+
+                status = await loop.run_in_executor(None, get_status)
+                progress = getattr(status, 'progress', '?')
+                logger.info(f"Видео {video_id}: статус {status.status}, прогресс {progress}%")
+
+                if status.status == "completed":
+                    # Функция скачивания
+                    def download_video():
+                        return client.videos.download_content(video_id)
+
+                    content = await loop.run_in_executor(None, download_video)
+                    logger.info(f"Видео {video_id} скачано, размер {len(content)} байт")
+                    return content
+
+                elif status.status == "failed":
+                    logger.error(f"Генерация видео {video_id} провалилась")
+                    return None
+
+            logger.error(f"Таймаут ожидания видео {video_id}")
+            return None
+
         except Exception as e:
-            logger.error(f"❌ Ошибка при генерации видео (I2V): {e}", exc_info=True)
+            logger.error(f"❌ Ошибка при генерации видео через клиент: {e}", exc_info=True)
             return None

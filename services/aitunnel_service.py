@@ -386,7 +386,6 @@ class AITunnelService:
                     "size": size,
                     "seconds": duration,
                 }
-                # ИСПРАВЛЕНО: убрали лишний /v1, теперь путь /v1/videos (через self.base_url)
                 async with session.post(
                     f"{self.base_url}/videos",
                     headers=headers,
@@ -448,30 +447,30 @@ class AITunnelService:
         Возвращает байты видео или None при ошибке.
         """
         try:
-            # Берём первое изображение
+            # Берём первое изображение и кодируем в base64
             image_path = image_paths[0]
-            with open(image_path, 'rb') as f:
-                image_bytes = f.read()
+            with open(image_path, "rb") as f:
+                image_base64 = base64.b64encode(f.read()).decode("utf-8")
+            data_url = f"data:image/jpeg;base64,{image_base64}"
 
             async with aiohttp.ClientSession() as session:
                 headers = {
-                    "Authorization": f"Bearer {self.api_key}"
-                    # Content-Type будет установлен автоматически для multipart
+                    "Authorization": f"Bearer {self.api_key}",
+                    "Content-Type": "application/json"
                 }
-                # Формируем multipart-запрос согласно примеру AITunnel
-                form_data = aiohttp.FormData()
-                form_data.add_field('model', 'sora-2-pro')
-                form_data.add_field('prompt', prompt)
-                form_data.add_field('size', size)
-                form_data.add_field('seconds', str(duration))
-                form_data.add_field('input_reference', image_bytes, filename='image.jpg', content_type='image/jpeg')
-                # Если нужно несколько изображений, можно добавить ещё полей 'input_reference'
-
-                # 1. Создание задачи (исправленный endpoint)
+                # Формируем JSON-запрос с base64 изображения
+                payload = {
+                    "model": "sora-2-pro",
+                    "prompt": prompt,
+                    "size": size,
+                    "seconds": duration,
+                    "input_reference": data_url  # передаём как data URL
+                }
+                # 1. Создание задачи
                 async with session.post(
                     f"{self.base_url}/videos",
                     headers=headers,
-                    data=form_data,
+                    json=payload,
                     timeout=aiohttp.ClientTimeout(total=30)
                 ) as resp:
                     if resp.status != 200:
@@ -485,12 +484,12 @@ class AITunnelService:
                         return None
 
                 # 2. Ожидание завершения
-                max_attempts = 60  # 5 минут
+                max_attempts = 60
                 for attempt in range(max_attempts):
                     await asyncio.sleep(5)
                     async with session.get(
                         f"{self.base_url}/videos/{video_id}",
-                        headers={"Authorization": f"Bearer {self.api_key}"}
+                        headers=headers
                     ) as resp:
                         if resp.status != 200:
                             logger.error(f"Ошибка получения статуса: {resp.status}")
@@ -503,7 +502,7 @@ class AITunnelService:
                             # 3. Скачивание
                             async with session.get(
                                 f"{self.base_url}/videos/{video_id}/content",
-                                headers={"Authorization": f"Bearer {self.api_key}"}
+                                headers=headers
                             ) as download_resp:
                                 if download_resp.status == 200:
                                     video_bytes = await download_resp.read()

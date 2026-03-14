@@ -440,6 +440,7 @@ class AITunnelService:
             return None
 
     # ---------- Видео Sora 2 Pro (из изображения, Image-to-Video) ----------
+        # ---------- Видео Sora 2 Pro (из изображения, Image-to-Video) ----------
     async def generate_video_sora_i2v(self, image_paths: list, prompt: str, size: str = "1280x720", duration: int = 5) -> bytes | None:
         """
         Генерация видео из изображения(й) через Sora 2 Pro (Image-to-Video).
@@ -458,13 +459,13 @@ class AITunnelService:
                     "Authorization": f"Bearer {self.api_key}",
                     "Content-Type": "application/json"
                 }
-                # Формируем JSON-запрос с base64 изображения
+                # Формируем JSON-запрос: input_reference должен быть объектом с полем url
                 payload = {
                     "model": "sora-2-pro",
                     "prompt": prompt,
                     "size": size,
                     "seconds": duration,
-                    "input_reference": data_url  # передаём как data URL
+                    "input_reference": {"url": data_url}  # ← ИСПРАВЛЕНО
                 }
                 # 1. Создание задачи
                 async with session.post(

@@ -368,11 +368,11 @@ class AITunnelService:
             logger.error(f"❌ Ошибка при генерации Nano Banana Pro: {e}", exc_info=True)
             return []
 
-        # ---------- Видео Sora 2 Pro (из изображения, Image-to-Video) ----------
+            # ---------- Видео Sora 2 Pro (из изображения, Image-to-Video) ----------
     async def generate_video_sora_i2v(self, image_paths: list, prompt: str, size: str = "1280x720", duration: int = 5) -> bytes | None:
         """
         Генерация видео из изображения(й) через Sora 2 Pro.
-        Использует прямой POST с JSON, где input_reference передаётся как объект {image: data_url}.
+        Использует прямой POST с JSON, где input_reference передаётся как объект {file: data_url}.
         """
         try:
             # Берём первое изображение и кодируем в base64
@@ -386,13 +386,13 @@ class AITunnelService:
                     "Authorization": f"Bearer {self.api_key}",
                     "Content-Type": "application/json"
                 }
-                # Формируем JSON-запрос: input_reference как объект с ключом image
+                # Формируем JSON-запрос: input_reference как объект с ключом file
                 payload = {
                     "model": "sora-2-pro",
                     "prompt": prompt,
                     "size": size,
                     "seconds": duration,
-                    "input_reference": {"image": data_url}
+                    "input_reference": {"file": data_url}  # ← ключ file
                 }
                 # 1. Создание задачи
                 async with session.post(
@@ -412,7 +412,7 @@ class AITunnelService:
                         return None
 
                 # 2. Ожидание завершения
-                max_attempts = 60  # 5 минут
+                max_attempts = 60
                 for attempt in range(max_attempts):
                     await asyncio.sleep(5)
                     async with session.get(

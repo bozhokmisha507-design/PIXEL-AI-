@@ -386,9 +386,9 @@ class AITunnelService:
                     "size": size,
                     "seconds": duration,
                 }
-                # Исправленный эндпоинт
+                # ИСПРАВЛЕНО: убрали лишний /v1, теперь путь /v1/videos (через self.base_url)
                 async with session.post(
-                    f"{self.base_url}/v1/videos",  # <-- исправлено
+                    f"{self.base_url}/videos",
                     headers=headers,
                     json=create_payload,
                     timeout=aiohttp.ClientTimeout(total=30)
@@ -407,9 +407,8 @@ class AITunnelService:
                 max_attempts = 60  # 5 минут (60 * 5 сек)
                 for attempt in range(max_attempts):
                     await asyncio.sleep(5)
-                    # Исправленный эндпоинт для статуса
                     async with session.get(
-                        f"{self.base_url}/v1/videos/{video_id}",  # <-- исправлено
+                        f"{self.base_url}/videos/{video_id}",
                         headers=headers
                     ) as resp:
                         if resp.status != 200:
@@ -421,9 +420,8 @@ class AITunnelService:
                         logger.info(f"Видео {video_id}: статус {status}, прогресс {progress}%")
                         if status == "completed":
                             # 3. Скачивание готового видео
-                            # Исправленный эндпоинт для скачивания
                             async with session.get(
-                                f"{self.base_url}/v1/videos/{video_id}/content",  # <-- исправлено
+                                f"{self.base_url}/videos/{video_id}/content",
                                 headers=headers
                             ) as download_resp:
                                 if download_resp.status == 200:
@@ -469,9 +467,9 @@ class AITunnelService:
                 form_data.add_field('input_reference', image_bytes, filename='image.jpg', content_type='image/jpeg')
                 # Если нужно несколько изображений, можно добавить ещё полей 'input_reference'
 
-                # 1. Создание задачи (используем тот же исправленный эндпоинт)
+                # 1. Создание задачи (исправленный endpoint)
                 async with session.post(
-                    f"{self.base_url}/v1/videos",  # <-- исправлено
+                    f"{self.base_url}/videos",
                     headers=headers,
                     data=form_data,
                     timeout=aiohttp.ClientTimeout(total=30)
@@ -490,9 +488,8 @@ class AITunnelService:
                 max_attempts = 60  # 5 минут
                 for attempt in range(max_attempts):
                     await asyncio.sleep(5)
-                    # Исправленный эндпоинт для статуса
                     async with session.get(
-                        f"{self.base_url}/v1/videos/{video_id}",  # <-- исправлено
+                        f"{self.base_url}/videos/{video_id}",
                         headers={"Authorization": f"Bearer {self.api_key}"}
                     ) as resp:
                         if resp.status != 200:
@@ -504,9 +501,8 @@ class AITunnelService:
                         logger.info(f"Видео {video_id}: статус {status}, прогресс {progress}%")
                         if status == "completed":
                             # 3. Скачивание
-                            # Исправленный эндпоинт для скачивания
                             async with session.get(
-                                f"{self.base_url}/v1/videos/{video_id}/content",  # <-- исправлено
+                                f"{self.base_url}/videos/{video_id}/content",
                                 headers={"Authorization": f"Bearer {self.api_key}"}
                             ) as download_resp:
                                 if download_resp.status == 200:

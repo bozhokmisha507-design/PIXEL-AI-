@@ -306,7 +306,7 @@ async def generate_video_from_data(user_id: int, bot: Bot, db, data: dict):
             image_paths=photo_paths,
             prompt=prompt,
             size="1280x720",
-            duration=5
+            duration=8
         )
 
         if video_data:

@@ -5,6 +5,7 @@ import aiohttp
 import asyncio
 import openai
 from openai import OpenAI
+import json  # <-- добавлен
 from config import Config
 
 logger = logging.getLogger(__name__)
@@ -368,41 +369,45 @@ class AITunnelService:
             logger.error(f"❌ Ошибка при генерации Nano Banana Pro: {e}", exc_info=True)
             return []
 
-            # ---------- Видео Sora 2 Pro (из изображения, Image-to-Video) ----------
-    async def generate_video_sora_i2v_multipart(self, image_paths: list, prompt: str, size: str = "1280x720", duration: int = 5) -> bytes | None:
+    # ---------- Видео Sora 2 Pro (Image-to-Video) через JSON ----------
+    async def generate_video_sora_i2v(self, image_paths: list, prompt: str, size: str = "1280x720", duration: int = 5) -> bytes | None:
         """
-        Генерация видео из изображения через Sora 2 Pro (Image-to-Video)
-        с использованием multipart/form-data (рекомендованный способ).
+        Генерация видео из изображения через Sora 2 Pro.
+        Использует JSON с полем input_reference: { "image_url": data_url }.
         """
         try:
-            # Берём первое изображение и читаем его байты (в отдельном потоке, чтобы не блокировать)
             image_path = image_paths[0]
-            loop = asyncio.get_event_loop()
-            image_bytes = await loop.run_in_executor(None, lambda: open(image_path, 'rb').read())
+            with open(image_path, "rb") as f:
+                image_base64 = base64.b64encode(f.read()).decode("utf-8")
+            data_url = f"data:image/jpeg;base64,{image_base64}"
+
+            payload = {
+                "model": "sora-2-pro",
+                "prompt": prompt,
+                "size": size,
+                "seconds": duration,
+                "input_reference": {
+                    "image_url": data_url   # именно так сказала поддержка
+                }
+            }
+
+            # Логируем отправляемый payload (для отладки)
+            logger.info(f"Отправляем JSON: {json.dumps(payload, indent=2)}")
 
             async with aiohttp.ClientSession() as session:
-                # Формируем multipart-данные
-                data = aiohttp.FormData()
-                data.add_field('model', 'sora-2-pro')
-                data.add_field('prompt', prompt)
-                data.add_field('size', size)
-                data.add_field('seconds', str(duration))
-                data.add_field('input_reference', image_bytes, filename='image.jpg', content_type='image/jpeg')
-
                 headers = {
-                    "Authorization": f"Bearer {self.api_key}"
+                    "Authorization": f"Bearer {self.api_key}",
+                    "Content-Type": "application/json"
                 }
-
-                # 1. Создание задачи
                 async with session.post(
                     f"{self.base_url}/videos",
                     headers=headers,
-                    data=data,
+                    json=payload,
                     timeout=aiohttp.ClientTimeout(total=30)
                 ) as resp:
                     if resp.status != 200:
                         error_text = await resp.text()
-                        logger.error(f"Ошибка создания видео (multipart): {resp.status} - {error_text}")
+                        logger.error(f"Ошибка создания видео: {resp.status} - {error_text}")
                         return None
                     create_result = await resp.json()
                     video_id = create_result.get("id")
@@ -410,13 +415,13 @@ class AITunnelService:
                         logger.error("Нет video_id в ответе")
                         return None
 
-                # 2. Ожидание завершения
+                # Ожидание завершения
                 max_attempts = 60
                 for attempt in range(max_attempts):
                     await asyncio.sleep(5)
                     async with session.get(
                         f"{self.base_url}/videos/{video_id}",
-                        headers={"Authorization": f"Bearer {self.api_key}"}
+                        headers=headers
                     ) as resp:
                         if resp.status != 200:
                             logger.error(f"Ошибка получения статуса: {resp.status}")
@@ -426,10 +431,9 @@ class AITunnelService:
                         progress = status_data.get("progress", 0)
                         logger.info(f"Видео {video_id}: статус {status}, прогресс {progress}%")
                         if status == "completed":
-                            # 3. Скачивание готового видео
                             async with session.get(
                                 f"{self.base_url}/videos/{video_id}/content",
-                                headers={"Authorization": f"Bearer {self.api_key}"}
+                                headers=headers
                             ) as download_resp:
                                 if download_resp.status == 200:
                                     video_bytes = await download_resp.read()
@@ -444,5 +448,5 @@ class AITunnelService:
                 logger.error(f"Таймаут ожидания видео {video_id}")
                 return None
         except Exception as e:
-            logger.error(f"❌ Ошибка при генерации видео (multipart): {e}", exc_info=True)
+            logger.error(f"❌ Ошибка при генерации видео: {e}", exc_info=True)
             return None

@@ -369,42 +369,41 @@ class AITunnelService:
             return []
 
             # ---------- Видео Sora 2 Pro (из изображения, Image-to-Video) через OpenAI-клиент ----------
-        async def generate_video_sora_i2v(self, image_paths: list, prompt: str, size: str = "1280x720", duration: int = 5) -> bytes | None:
-                  """
-                  Генерация видео из изображения через Sora 2 Pro (Image-to-Video).
-                  Использует JSON с data URL (поддерживается API).
-                  """
+            async def generate_video_sora_i2v_multipart(self, image_paths: list, prompt: str, size: str = "1280x720", duration: int = 5) -> bytes | None:
+             """
+             Генерация видео из изображения через Sora 2 Pro (Image-to-Video)
+             с использованием multipart/form-data (рекомендованный способ).
+             """
         try:
-            # Берём первое изображение и кодируем в base64
+            # Берём первое изображение и читаем его байты (в отдельном потоке, чтобы не блокировать)
             image_path = image_paths[0]
-            with open(image_path, "rb") as f:
-                image_base64 = base64.b64encode(f.read()).decode("utf-8")
-            data_url = f"data:image/jpeg;base64,{image_base64}"
+            loop = asyncio.get_event_loop()
+            image_bytes = await loop.run_in_executor(None, lambda: open(image_path, 'rb').read())
 
             async with aiohttp.ClientSession() as session:
+                # Формируем multipart-данные
+                data = aiohttp.FormData()
+                data.add_field('model', 'sora-2-pro')
+                data.add_field('prompt', prompt)
+                data.add_field('size', size)
+                data.add_field('seconds', str(duration))
+                data.add_field('input_reference', image_bytes, filename='image.jpg', content_type='image/jpeg')
+
                 headers = {
-                    "Authorization": f"Bearer {self.api_key}",
-                    "Content-Type": "application/json"
+                    "Authorization": f"Bearer {self.api_key}"
+                    # Content-Type не нужен, aiohttp сам добавит boundary
                 }
-                payload = {
-                    "model": "sora-2-pro",
-                    "prompt": prompt,
-                    "size": size,
-                    "seconds": duration,
-                    "input_reference": {
-                        "image_url": data_url   # ← правильный ключ
-                    }
-                }
+
                 # 1. Создание задачи
                 async with session.post(
                     f"{self.base_url}/videos",
                     headers=headers,
-                    json=payload,
+                    data=data,
                     timeout=aiohttp.ClientTimeout(total=30)
                 ) as resp:
                     if resp.status != 200:
                         error_text = await resp.text()
-                        logger.error(f"Ошибка создания видео (I2V): {resp.status} - {error_text}")
+                        logger.error(f"Ошибка создания видео (multipart): {resp.status} - {error_text}")
                         return None
                     create_result = await resp.json()
                     video_id = create_result.get("id")
@@ -418,7 +417,7 @@ class AITunnelService:
                     await asyncio.sleep(5)
                     async with session.get(
                         f"{self.base_url}/videos/{video_id}",
-                        headers=headers
+                        headers={"Authorization": f"Bearer {self.api_key}"}
                     ) as resp:
                         if resp.status != 200:
                             logger.error(f"Ошибка получения статуса: {resp.status}")
@@ -431,7 +430,7 @@ class AITunnelService:
                             # 3. Скачивание готового видео
                             async with session.get(
                                 f"{self.base_url}/videos/{video_id}/content",
-                                headers=headers
+                                headers={"Authorization": f"Bearer {self.api_key}"}
                             ) as download_resp:
                                 if download_resp.status == 200:
                                     video_bytes = await download_resp.read()
@@ -446,5 +445,5 @@ class AITunnelService:
                 logger.error(f"Таймаут ожидания видео {video_id}")
                 return None
         except Exception as e:
-            logger.error(f"❌ Ошибка при генерации видео (I2V): {e}", exc_info=True)
+            logger.error(f"❌ Ошибка при генерации видео (multipart): {e}", exc_info=True)
             return None

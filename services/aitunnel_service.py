@@ -286,7 +286,7 @@ class AITunnelService:
     async def generate_custom_photo(self, user_photo_paths: list, prompt: str, num_images: int = 1) -> list:
         """
         Генерация фото по произвольному промпту (кастомная генерация).
-        Использует модель Gemini 3.1 Flash (как базовую) для одного референсного изображения.
+        Использует модель Gemini 3.1 Flash для одного референсного изображения.
         """
         try:
             if not user_photo_paths:
@@ -334,6 +334,7 @@ class AITunnelService:
                             "modalities": ["image", "text"],
                             "max_tokens": 1000
                         }
+                        logger.info(f"Отправляем запрос к Gemini с промптом: {prompt[:100]}...")
                         async with session.post(
                             f"{self.base_url}/chat/completions",
                             headers=headers,
@@ -342,6 +343,8 @@ class AITunnelService:
                         ) as resp:
                             if resp.status == 200:
                                 result = await resp.json()
+                                # Логируем полный ответ для отладки (можно убрать после отладки)
+                                logger.debug(f"Ответ от API: {json.dumps(result, indent=2)[:500]}")
                                 if 'choices' in result and result['choices']:
                                     message = result['choices'][0].get('message', {})
                                     image_added = False
@@ -357,8 +360,16 @@ class AITunnelService:
                                                 image_added = True
                                                 break
                                     # Если не нашли, пробуем content
-                                    if not image_added and 'content' in message and message['content'] and message['content'].startswith('data:image'):
-                                        results.append(message['content'])
+                                    if not image_added and 'content' in message and message['content']:
+                                        content = message['content']
+                                        if isinstance(content, str) and content.startswith('data:image'):
+                                            results.append(content)
+                                            image_added = True
+                                    if not image_added:
+                                        # Если ничего не нашли, логируем структуру ответа
+                                        logger.error(f"❌ Не удалось извлечь изображение из ответа. Полный ответ: {json.dumps(result, indent=2)}")
+                                else:
+                                    logger.error(f"❌ Нет choices в ответе: {result}")
                             else:
                                 error_text = await resp.text()
                                 logger.error(f"❌ Ошибка Gemini при кастомной генерации: {resp.status} - {error_text}")

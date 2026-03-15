@@ -2,6 +2,8 @@ import uuid
 import logging
 import os
 import json
+import aiohttp
+import asyncio
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, Bot
 from telegram.ext import ContextTypes, ConversationHandler, CommandHandler, MessageHandler, filters, CallbackQueryHandler
 from config import Config
@@ -24,7 +26,7 @@ COUPLE_STYLES = {
     "couple_forest": "🌲 Лесная прогулка",
 }
 
-# Промпты для пар (можно оставить как есть или улучшить)
+# Промпты для пар
 COUPLE_PROMPTS = {
     "couple_beach": "A romantic close-up portrait of a couple on a beach at sunset, holding hands, embracing, photorealistic, 8k, highly detailed faces, exact facial features as in reference images, faces clearly visible, sharp focus on faces, medium shot, warm sunset lighting",
     "couple_wedding": "A romantic close-up wedding portrait of a couple in a garden, bride in elegant white dress, groom in classic tuxedo, photorealistic, 8k, highly detailed faces, exact facial features as in reference images, faces clearly visible, sharp focus on faces, soft romantic lighting, shallow depth of field, professional wedding photography style",
@@ -96,7 +98,6 @@ async def style_selected_callback(update: Update, context: ContextTypes.DEFAULT_
     db = await get_db()
     tokens = await db.get_user_tokens(user_id)
 
-    # Используем единую цену и стоимость в жетонах из Config
     price = Config.COUPLE_PRICE
     token_cost = Config.COUPLE_TOKEN_COST
 
@@ -131,6 +132,10 @@ async def pay_with_tokens_callback(update: Update, context: ContextTypes.DEFAULT
     if not await db.use_tokens(user_id, token_cost):
         await query.edit_message_text("❌ Недостаточно жетонов.")
         return ConversationHandler.END
+
+    # Сохраняем информацию об оплате жетонами для возможного возврата
+    context.user_data['couple_paid_with_tokens'] = True
+    context.user_data['couple_token_cost'] = token_cost
 
     await query.edit_message_text("⏳ Генерация парного фото с использованием жетонов...")
     await generate_couple_photo(user_id, context.bot, db, context)
@@ -190,6 +195,12 @@ async def cancel_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return ConversationHandler.END
 
 async def generate_couple_photo(user_id: int, bot: Bot, db, context=None):
+    """Генерация парного фото с повторными попытками при временных ошибках."""
+    if context is None:
+        logger.error("generate_couple_photo вызван без контекста")
+        await bot.send_message(user_id, "❌ Внутренняя ошибка, повторите попытку.")
+        return
+
     try:
         photo_paths = context.user_data.get('couple_photos', [])
         if len(photo_paths) != 2:
@@ -202,13 +213,23 @@ async def generate_couple_photo(user_id: int, bot: Bot, db, context=None):
 
         prompt = COUPLE_PROMPTS.get(style_key, "A romantic couple, photorealistic, 8k, faces clearly visible")
         aitunnel = AITunnelService()
-        # Используем Nano Banana Pro для парных фото
-        results = await aitunnel.generate_couple_photo_nanobanana(
-            male_photo_path=photo_paths[0],
-            female_photo_path=photo_paths[1],
-            prompt=prompt,
-            resolution="2K"  # или "4K"
-        )
+
+        max_retries = 3
+        results = None
+        for attempt in range(max_retries):
+            try:
+                results = await aitunnel.generate_couple_photo_nanobanana(
+                    male_photo_path=photo_paths[0],
+                    female_photo_path=photo_paths[1],
+                    prompt=prompt,
+                    resolution="2K"
+                )
+                break  # успех – выходим из цикла
+            except (aiohttp.ClientError, asyncio.TimeoutError) as e:
+                logger.error(f"Попытка {attempt+1} генерации не удалась: {e}")
+                if attempt == max_retries - 1:
+                    raise  # последняя попытка – пробрасываем для общей обработки
+                await asyncio.sleep(2)
 
         if results:
             await bot.send_message(user_id, "✅ Ваше парное фото готово!")
@@ -216,14 +237,24 @@ async def generate_couple_photo(user_id: int, bot: Bot, db, context=None):
                 await send_photo_or_fallback(bot, user_id, image_data)
         else:
             await bot.send_message(user_id, "❌ Не удалось сгенерировать фото. Попробуйте позже.")
+            # Возврат жетонов, если оплачивали жетонами
+            if context.user_data.get('couple_paid_with_tokens'):
+                token_cost = context.user_data.get('couple_token_cost', Config.COUPLE_TOKEN_COST)
+                await db.add_tokens(user_id, token_cost)
+                await bot.send_message(user_id, f"💎 Вам возвращено {token_cost} жетонов.")
+            return
 
+        # Удаление временных файлов
         for path in photo_paths:
             try:
                 if os.path.exists(path):
                     os.remove(path)
             except:
                 pass
-        del context.user_data['couple_photos']
+        context.user_data.pop('couple_photos', None)
+        context.user_data.pop('couple_paid_with_tokens', None)
+        context.user_data.pop('couple_token_cost', None)
+
         await bot.send_message(
             chat_id=user_id,
             text="👇 *Главное меню*:",
@@ -233,8 +264,14 @@ async def generate_couple_photo(user_id: int, bot: Bot, db, context=None):
     except Exception as e:
         logger.error(f"Ошибка генерации: {e}", exc_info=True)
         await bot.send_message(user_id, "❌ Произошла ошибка. Мы уже работаем над её исправлением.")
+        # Возврат жетонов при любой ошибке, если оплачивали жетонами
+        if context and context.user_data.get('couple_paid_with_tokens'):
+            token_cost = context.user_data.get('couple_token_cost', Config.COUPLE_TOKEN_COST)
+            await db.add_tokens(user_id, token_cost)
+            await bot.send_message(user_id, f"💎 Вам возвращено {token_cost} жетонов.")
 
 async def generate_couple_photo_from_data(user_id: int, bot: Bot, db, data: dict):
+    """Генерация парного фото по данным из заказа (оплата деньгами) с повторными попытками."""
     try:
         male_photo = data.get('male_photo')
         female_photo = data.get('female_photo')
@@ -249,12 +286,23 @@ async def generate_couple_photo_from_data(user_id: int, bot: Bot, db, data: dict
 
         prompt = COUPLE_PROMPTS.get(style_key, "A romantic couple, photorealistic, 8k, faces clearly visible")
         aitunnel = AITunnelService()
-        results = await aitunnel.generate_couple_photo_nanobanana(
-            male_photo_path=male_photo,
-            female_photo_path=female_photo,
-            prompt=prompt,
-            resolution="2K"
-        )
+
+        max_retries = 3
+        results = None
+        for attempt in range(max_retries):
+            try:
+                results = await aitunnel.generate_couple_photo_nanobanana(
+                    male_photo_path=male_photo,
+                    female_photo_path=female_photo,
+                    prompt=prompt,
+                    resolution="2K"
+                )
+                break
+            except (aiohttp.ClientError, asyncio.TimeoutError) as e:
+                logger.error(f"Попытка {attempt+1} генерации не удалась: {e}")
+                if attempt == max_retries - 1:
+                    raise
+                await asyncio.sleep(2)
 
         if results:
             await bot.send_message(user_id, "✅ Ваше парное фото готово!")
@@ -262,13 +310,16 @@ async def generate_couple_photo_from_data(user_id: int, bot: Bot, db, data: dict
                 await send_photo_or_fallback(bot, user_id, image_data)
         else:
             await bot.send_message(user_id, "❌ Не удалось сгенерировать фото. Попробуйте позже.")
+            return
 
+        # Удаление исходных фото
         for path in [male_photo, female_photo]:
             try:
                 if os.path.exists(path):
                     os.remove(path)
             except:
                 pass
+
         await bot.send_message(
             chat_id=user_id,
             text="👇 *Главное меню*:",

@@ -233,8 +233,8 @@ async def generate_couple_photo(user_id: int, bot: Bot, db, context=None):
 
         if results:
             await bot.send_message(user_id, "✅ Ваше парное фото готово!")
-            for image_data in results:
-                await send_photo_or_fallback(bot, user_id, image_data)
+            # Отправляем только первый элемент, чтобы избежать дублей
+            await send_photo_or_fallback(bot, user_id, results[0])
         else:
             await bot.send_message(user_id, "❌ Не удалось сгенерировать фото. Попробуйте позже.")
             # Возврат жетонов, если оплачивали жетонами
@@ -306,8 +306,8 @@ async def generate_couple_photo_from_data(user_id: int, bot: Bot, db, data: dict
 
         if results:
             await bot.send_message(user_id, "✅ Ваше парное фото готово!")
-            for image_data in results:
-                await send_photo_or_fallback(bot, user_id, image_data)
+            # Отправляем только первый элемент
+            await send_photo_or_fallback(bot, user_id, results[0])
         else:
             await bot.send_message(user_id, "❌ Не удалось сгенерировать фото. Попробуйте позже.")
             return

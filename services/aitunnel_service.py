@@ -366,11 +366,11 @@ class AITunnelService:
             return []
 
     # ---------- ВИДЕО Sora 2 Pro (Image-to-Video) через JSON ----------
-        async def generate_video_sora_i2v(self, image_paths: list, prompt: str, size: str = "1280x720", duration: int = 8) -> bytes | None:
-            """
-            Генерация видео из изображения через Sora 2 Pro.
-            duration может быть 4, 8 или 12 (секунды).
-            """
+    async def generate_video_sora_i2v(self, image_paths: list, prompt: str, size: str = "1280x720", duration: int = 8) -> bytes | None:
+        """
+        Генерация видео из изображения через Sora 2 Pro.
+        duration может быть 4, 8 или 12 (секунды).
+        """
         try:
             # Проверяем допустимость duration
             allowed = [4, 8, 12]

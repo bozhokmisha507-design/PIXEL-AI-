@@ -366,14 +366,19 @@ class AITunnelService:
             return []
 
     # ---------- ВИДЕО Sora 2 Pro (Image-to-Video) через JSON ----------
-    async def generate_video_sora_i2v(self, image_paths: list, prompt: str, size: str = "1280x720", duration: int = 5) -> bytes | None:
-        """
-        Генерация видео из изображения через Sora 2 Pro.
-        Использует JSON с полем input_reference: { "image_url": data_url }.
-        Это единственный метод для видео в данном классе.
-        """
+        async def generate_video_sora_i2v(self, image_paths: list, prompt: str, size: str = "1280x720", duration: int = 8) -> bytes | None:
+            """
+            Генерация видео из изображения через Sora 2 Pro.
+            duration может быть 4, 8 или 12 (секунды).
+            """
         try:
-            # Берём первое изображение
+            # Проверяем допустимость duration
+            allowed = [4, 8, 12]
+            if duration not in allowed:
+                logger.warning(f"Недопустимое значение duration={duration}, используем 8")
+                duration = 8
+            seconds_str = str(duration)
+
             image_path = image_paths[0]
             with open(image_path, "rb") as f:
                 image_base64 = base64.b64encode(f.read()).decode("utf-8")
@@ -383,18 +388,13 @@ class AITunnelService:
                 "model": "sora-2-pro",
                 "prompt": prompt,
                 "size": size,
-                "seconds": duration,
+                "seconds": seconds_str,      # строка!
                 "input_reference": {
                     "image_url": data_url
                 }
             }
 
-            # Логируем отправляемый JSON (для отладки)
-            logger.info("="*50)
-            logger.info("ОТПРАВЛЯЕМ ЗАПРОС К AITUNNEL VIDEO API")
-            logger.info(f"URL: {self.base_url}/videos")
-            logger.info(f"PAYLOAD: {json.dumps(payload, indent=2, ensure_ascii=False)}")
-            logger.info("="*50)
+            logger.info(f"Отправляем JSON: {json.dumps(payload, indent=2)}")
 
             async with aiohttp.ClientSession() as session:
                 headers = {
@@ -409,17 +409,16 @@ class AITunnelService:
                 ) as resp:
                     if resp.status != 200:
                         error_text = await resp.text()
-                        logger.error(f"❌ Ошибка создания видео: {resp.status} - {error_text}")
+                        logger.error(f"Ошибка создания видео: {resp.status} - {error_text}")
                         return None
                     create_result = await resp.json()
                     video_id = create_result.get("id")
                     if not video_id:
-                        logger.error("❌ Нет video_id в ответе")
+                        logger.error("Нет video_id в ответе")
                         return None
-                    logger.info(f"✅ Видеозадача создана, ID: {video_id}")
 
                 # Ожидание завершения
-                max_attempts = 60  # 5 минут
+                max_attempts = 60
                 for attempt in range(max_attempts):
                     await asyncio.sleep(5)
                     async with session.get(
@@ -440,7 +439,7 @@ class AITunnelService:
                             ) as download_resp:
                                 if download_resp.status == 200:
                                     video_bytes = await download_resp.read()
-                                    logger.info(f"✅ Видео {video_id} скачано, размер {len(video_bytes)} байт")
+                                    logger.info(f"Видео {video_id} скачано, размер {len(video_bytes)} байт")
                                     return video_bytes
                                 else:
                                     logger.error(f"Ошибка скачивания видео: {download_resp.status}")

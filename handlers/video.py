@@ -93,7 +93,6 @@ async def done_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def ask_prompt_from_callback(query, context):
     """Вызывается из callback для перехода к PROMPT."""
-    # Отправляем новое сообщение с запросом промпта
     await query.message.reply_text(
         "✍️ *Введите описание видео*\n\n"
         "Опишите, что должно происходить на видео. Например:\n"
@@ -123,7 +122,6 @@ async def prompt_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     prompt = update.message.text.strip()
     context.user_data['video_prompt'] = prompt
 
-    # Показываем выбор модели
     keyboard = []
     for key, name in VIDEO_MODELS.items():
         keyboard.append([InlineKeyboardButton(name, callback_data=f"video_model_{key}")])
@@ -194,7 +192,6 @@ async def pay_with_money_callback(update: Update, context: ContextTypes.DEFAULT_
     label = f"video_{user_id}_{uuid.uuid4().hex[:8]}"
     amount = VIDEO_PRICE
 
-    # Сохраняем данные заказа (промпт, модель, пути к фото)
     data = {
         'prompt': context.user_data['video_prompt'],
         'model': context.user_data['video_model'],
@@ -233,7 +230,6 @@ async def cancel_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     await query.edit_message_text("❌ Операция отменена.")
-    # Очищаем временные фото
     if 'video_photos' in context.user_data:
         for path in context.user_data['video_photos']:
             try:
@@ -258,7 +254,7 @@ async def generate_video(user_id: int, bot: Bot, db, context=None):
             return
 
         aitunnel = AITunnelService()
-        video_data = await aitunnel.generate_video_sora_i2v_multipart(
+        video_data = await aitunnel.generate_video_sora_i2v(
             image_paths=photo_paths,
             prompt=prompt,
             size="1280x720",
@@ -271,7 +267,6 @@ async def generate_video(user_id: int, bot: Bot, db, context=None):
         else:
             await bot.send_message(user_id, "❌ Не удалось сгенерировать видео. Попробуйте позже.")
 
-        # Очищаем временные фото
         for path in photo_paths:
             try:
                 if os.path.exists(path):
@@ -307,7 +302,7 @@ async def generate_video_from_data(user_id: int, bot: Bot, db, data: dict):
             return
 
         aitunnel = AITunnelService()
-        video_data = await aitunnel.generate_video_sora_i2v_multipart(
+        video_data = await aitunnel.generate_video_sora_i2v(
             image_paths=photo_paths,
             prompt=prompt,
             size="1280x720",
@@ -320,7 +315,6 @@ async def generate_video_from_data(user_id: int, bot: Bot, db, data: dict):
         else:
             await bot.send_message(user_id, "❌ Не удалось сгенерировать видео. Попробуйте позже.")
 
-        # Очищаем временные фото
         for path in photo_paths:
             try:
                 if os.path.exists(path):

@@ -368,12 +368,12 @@ class AITunnelService:
             logger.error(f"❌ Ошибка при генерации Nano Banana Pro: {e}", exc_info=True)
             return []
 
-            # ---------- Видео Sora 2 Pro (из изображения, Image-to-Video) через OpenAI-клиент ----------
-            async def generate_video_sora_i2v_multipart(self, image_paths: list, prompt: str, size: str = "1280x720", duration: int = 5) -> bytes | None:
-             """
-             Генерация видео из изображения через Sora 2 Pro (Image-to-Video)
-             с использованием multipart/form-data (рекомендованный способ).
-             """
+            # ---------- Видео Sora 2 Pro (из изображения, Image-to-Video) ----------
+    async def generate_video_sora_i2v_multipart(self, image_paths: list, prompt: str, size: str = "1280x720", duration: int = 5) -> bytes | None:
+        """
+        Генерация видео из изображения через Sora 2 Pro (Image-to-Video)
+        с использованием multipart/form-data (рекомендованный способ).
+        """
         try:
             # Берём первое изображение и читаем его байты (в отдельном потоке, чтобы не блокировать)
             image_path = image_paths[0]
@@ -391,7 +391,6 @@ class AITunnelService:
 
                 headers = {
                     "Authorization": f"Bearer {self.api_key}"
-                    # Content-Type не нужен, aiohttp сам добавит boundary
                 }
 
                 # 1. Создание задачи

@@ -258,7 +258,7 @@ async def generate_video(user_id: int, bot: Bot, db, context=None):
             image_paths=photo_paths,
             prompt=prompt,
             size="1280x720",
-            duration=5
+            duration=4
         )
 
         if video_data:

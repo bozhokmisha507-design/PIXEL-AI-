@@ -258,8 +258,7 @@ async def generate_video(user_id: int, bot: Bot, db, context=None):
             return
 
         aitunnel = AITunnelService()
-        # Используем Image-to-Video метод
-        video_data = await aitunnel.generate_video_sora_i2v(
+        video_data = await aitunnel.generate_video_sora_i2v_multipart(
             image_paths=photo_paths,
             prompt=prompt,
             size="1280x720",
@@ -292,20 +291,22 @@ async def generate_video(user_id: int, bot: Bot, db, context=None):
         logger.error(f"Ошибка генерации видео: {e}", exc_info=True)
         await bot.send_message(user_id, "❌ Произошла ошибка. Мы уже работаем над её исправлением.")
 
-async def generate_video(user_id: int, bot: Bot, db, context=None):
+async def generate_video_from_data(user_id: int, bot: Bot, db, data: dict):
+    """Генерация видео по данным из БД (используется после денежной оплаты)."""
     try:
-        prompt = context.user_data.get('video_prompt')
-        model_key = context.user_data.get('video_model', 'sora2pro')
-        photo_paths = context.user_data.get('video_photos', [])
+        prompt = data.get('prompt')
+        model_key = data.get('model', 'sora2pro')
+        photo_paths = data.get('photos', [])
+
         if not prompt:
-            await bot.send_message(user_id, "❌ Не найден промпт для генерации.")
+            logger.error(f"Нет промпта в данных заказа: {data}")
+            await bot.send_message(user_id, "❌ Ошибка: неполные данные заказа.")
             return
         if not photo_paths:
             await bot.send_message(user_id, "❌ Не найдены исходные фото.")
             return
 
         aitunnel = AITunnelService()
-        # ✅ Используем multipart (рекомендованный способ)
         video_data = await aitunnel.generate_video_sora_i2v_multipart(
             image_paths=photo_paths,
             prompt=prompt,
@@ -319,9 +320,22 @@ async def generate_video(user_id: int, bot: Bot, db, context=None):
         else:
             await bot.send_message(user_id, "❌ Не удалось сгенерировать видео. Попробуйте позже.")
 
-        # ... остальная очистка
+        # Очищаем временные фото
+        for path in photo_paths:
+            try:
+                if os.path.exists(path):
+                    os.remove(path)
+            except:
+                pass
+
+        await bot.send_message(
+            chat_id=user_id,
+            text="👇 *Главное меню*:",
+            parse_mode='Markdown',
+            reply_markup=get_main_menu_keyboard()
+        )
     except Exception as e:
-        logger.error(f"Ошибка генерации видео: {e}", exc_info=True)
+        logger.error(f"Ошибка генерации видео из данных: {e}", exc_info=True)
         await bot.send_message(user_id, "❌ Произошла ошибка. Мы уже работаем над её исправлением.")
 
 # ConversationHandler

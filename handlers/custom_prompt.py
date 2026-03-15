@@ -12,11 +12,11 @@ from utils.helpers import send_photo_or_fallback
 logger = logging.getLogger(__name__)
 
 # Состояния диалога
-GET_PROMPT, SELECT_MODEL, CONFIRM = range(3)  # CHECK_PHOTOS не нужен, т.к. проверка в начале
+GET_PROMPT, CONFIRM = range(2)
 
-# Стоимость в жетонах
-TOKEN_COST_GEMINI = 1
-TOKEN_COST_GPT = 2
+# Стоимость в жетонах (только GPT)
+TOKEN_COST = 2
+PRICE = Config.PRICE_PREMIUM  # 76 руб
 
 async def custom_prompt_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Начало диалога: проверяем наличие фото."""
@@ -35,13 +35,13 @@ async def custom_prompt_start(update: Update, context: ContextTypes.DEFAULT_TYPE
     await update.message.reply_text(
         "✍️ *Введите ваш промпт* — описание того, что вы хотите получить на фото.\n\n"
         "Например: *«я в костюме супергероя на фоне небоскрёбов, ночное освещение»*\n\n"
-        "Вы можете использовать любые фразы на русском или английском.",
+        "Используется модель GPT Image High (премиум-качество).",
         parse_mode='Markdown'
     )
     return GET_PROMPT
 
 async def get_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Сохраняем промпт и переходим к выбору модели."""
+    """Сохраняем промпт и переходим к выбору способа оплаты."""
     prompt = update.message.text.strip()
     if not prompt:
         await update.message.reply_text("❌ Промпт не может быть пустым. Попробуйте снова.")
@@ -50,48 +50,27 @@ async def get_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data['custom_prompt'] = prompt
     logger.info(f"Пользователь {update.effective_user.id} ввёл промпт: {prompt[:50]}...")
 
-    # Клавиатура выбора модели
-    keyboard = [
-        [InlineKeyboardButton("🚀 Gemini (базовое) – 38₽ / 1 жетон", callback_data="custom_model_gemini")],
-        [InlineKeyboardButton("💎 GPT Image High (премиум) – 76₽ / 2 жетона", callback_data="custom_model_gpt")]
-    ]
-    await update.message.reply_text(
-        "🎛 *Выберите модель генерации:*",
-        parse_mode='Markdown',
-        reply_markup=InlineKeyboardMarkup(keyboard)
-    )
-    return SELECT_MODEL
-
-async def model_selected_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Обработка выбора модели -> показываем варианты оплаты."""
-    query = update.callback_query
-    await query.answer()
-
-    model_choice = query.data.replace("custom_model_", "")
-    context.user_data['custom_model'] = model_choice
-
-    user_id = query.from_user.id
+    user_id = update.effective_user.id
     db = await get_db()
     tokens = await db.get_user_tokens(user_id)
 
-    price = Config.PRICE_PER_GENERATION if model_choice == "gemini" else Config.PRICE_PREMIUM
-    token_cost = TOKEN_COST_GEMINI if model_choice == "gemini" else TOKEN_COST_GPT
-    model_name = "Gemini" if model_choice == "gemini" else "GPT Image High"
-
     keyboard = []
-    if tokens >= token_cost:
+    if tokens >= TOKEN_COST:
         keyboard.append([InlineKeyboardButton(
-            f"💎 Использовать жетоны ({token_cost} шт., у вас {tokens})",
+            f"💎 Использовать жетоны ({TOKEN_COST} шт., у вас {tokens})",
             callback_data="custom_pay_tokens"
         )])
-    keyboard.append([InlineKeyboardButton(f"💳 Оплатить {price}₽", callback_data="custom_pay_money")])
+    keyboard.append([InlineKeyboardButton(
+        f"💳 Оплатить {PRICE}₽",
+        callback_data="custom_pay_money"
+    )])
     keyboard.append([InlineKeyboardButton("❌ Отмена", callback_data="custom_cancel")])
 
-    await query.edit_message_text(
-        f"✅ Выбрана модель: {model_name}\n"
-        f"Цена: {price}₽ или {token_cost} жетон(ов).\n\n"
-        f"Ваш промпт:\n_{context.user_data['custom_prompt'][:100]}..._\n\n"
-        f"Как хотите получить фото?",
+    await update.message.reply_text(
+        f"✅ Промпт сохранён.\n\n"
+        f"Модель: GPT Image High\n"
+        f"Стоимость: {PRICE}₽ или {TOKEN_COST} жетона.\n\n"
+        f"Как хотите оплатить?",
         parse_mode='Markdown',
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
@@ -105,16 +84,13 @@ async def pay_with_tokens_callback(update: Update, context: ContextTypes.DEFAULT
     user_id = query.from_user.id
     db = await get_db()
 
-    model_choice = context.user_data.get('custom_model', 'gemini')
-    token_cost = TOKEN_COST_GEMINI if model_choice == "gemini" else TOKEN_COST_GPT
-
-    if not await db.use_tokens(user_id, token_cost):
+    if not await db.use_tokens(user_id, TOKEN_COST):
         await query.edit_message_text("❌ Недостаточно жетонов.")
         return ConversationHandler.END
 
     # Сохраняем информацию об оплате для возможного возврата
     context.user_data['custom_paid_with_tokens'] = True
-    context.user_data['custom_token_cost'] = token_cost
+    context.user_data['custom_token_cost'] = TOKEN_COST
 
     await query.edit_message_text("⏳ Генерация с использованием жетонов...")
     await generate_custom_photo(user_id, context.bot, db, context)
@@ -127,13 +103,12 @@ async def pay_with_money_callback(update: Update, context: ContextTypes.DEFAULT_
 
     user_id = query.from_user.id
     label = f"custom_{user_id}_{uuid.uuid4().hex[:8]}"
-    model_choice = context.user_data.get('custom_model', 'gemini')
-    amount = Config.PRICE_PER_GENERATION if model_choice == "gemini" else Config.PRICE_PREMIUM
+    amount = PRICE
 
-    # Сохраняем данные заказа
+    # Сохраняем данные заказа (модель всегда GPT)
     data = {
         'prompt': context.user_data['custom_prompt'],
-        'model': model_choice
+        'model': 'gpt'
     }
 
     db = await get_db()
@@ -144,7 +119,7 @@ async def pay_with_money_callback(update: Update, context: ContextTypes.DEFAULT_
         quickpay = Quickpay(
             receiver=Config.YOOMONEY_WALLET,
             quickpay_form="shop",
-            targets="Кастомная генерация фото в PIXEL AI",
+            targets="Кастомная генерация фото в PIXEL AI (GPT)",
             paymentType="AC",
             sum=amount,
             label=label,
@@ -171,10 +146,9 @@ async def cancel_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return ConversationHandler.END
 
 async def generate_custom_photo(user_id: int, bot, db, context):
-    """Генерация по кастомному промпту после оплаты жетонами."""
+    """Генерация по кастомному промпту после оплаты жетонами (всегда GPT)."""
     try:
         prompt = context.user_data.get('custom_prompt')
-        model_choice = context.user_data.get('custom_model', 'gemini')
         if not prompt:
             await bot.send_message(user_id, "❌ Промпт не найден.")
             return
@@ -194,18 +168,13 @@ async def generate_custom_photo(user_id: int, bot, db, context):
         else:
             full_prompt = f"Photo of this person. {prompt}"
 
-        # Добавляем инструкцию горизонтального формата для обеих моделей
+        # Добавляем инструкцию горизонтального формата
         full_prompt += " Landscape orientation, horizontal composition, aspect ratio 16:9, wide format."
 
-        if model_choice == 'gemini':
-            service = AITunnelService()
-            logger.info(f"Custom generation with Gemini for user {user_id}")
-        else:
-            # Для GPT используем горизонтальный размер
-            service = AITunnelService(model_type="gpt", quality="high", size="1536x1024")
-            logger.info(f"Custom generation with GPT for user {user_id}")
+        # Всегда используем GPT
+        service = AITunnelService(model_type="gpt", quality="high", size="1536x1024")
+        logger.info(f"Custom generation with GPT for user {user_id}")
 
-        # Вызываем метод generate_custom_photo (добавлен в aitunnel_service.py)
         results = await service.generate_custom_photo(
             user_photo_paths=photo_paths,
             prompt=full_prompt,
@@ -214,20 +183,19 @@ async def generate_custom_photo(user_id: int, bot, db, context):
 
         if results:
             await bot.send_message(user_id, "✅ Ваше фото готово!")
-            # Отправляем только первое изображение, чтобы избежать дублей
+            # Отправляем только первое изображение
             await send_photo_or_fallback(bot, user_id, results[0])
         else:
             await bot.send_message(user_id, "❌ Не удалось сгенерировать фото. Попробуйте позже.")
             # Возврат жетонов при ошибке
             if context.user_data.get('custom_paid_with_tokens'):
-                token_cost = context.user_data.get('custom_token_cost', 1)
+                token_cost = context.user_data.get('custom_token_cost', TOKEN_COST)
                 await db.add_tokens(user_id, token_cost)
                 await bot.send_message(user_id, f"💎 Вам возвращено {token_cost} жетонов.")
             return
 
         # Очищаем временные данные
         context.user_data.pop('custom_prompt', None)
-        context.user_data.pop('custom_model', None)
         context.user_data.pop('custom_paid_with_tokens', None)
         context.user_data.pop('custom_token_cost', None)
 
@@ -242,7 +210,7 @@ async def generate_custom_photo(user_id: int, bot, db, context):
         await bot.send_message(user_id, "❌ Произошла ошибка. Мы уже работаем над её исправлением.")
         # Возврат жетонов при исключении
         if context and context.user_data.get('custom_paid_with_tokens'):
-            token_cost = context.user_data.get('custom_token_cost', 1)
+            token_cost = context.user_data.get('custom_token_cost', TOKEN_COST)
             await db.add_tokens(user_id, token_cost)
             await bot.send_message(user_id, f"💎 Вам возвращено {token_cost} жетонов.")
 
@@ -251,7 +219,6 @@ custom_prompt_conv = ConversationHandler(
     entry_points=[MessageHandler(filters.Text("✍️ Свой промпт"), custom_prompt_start)],
     states={
         GET_PROMPT: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_prompt)],
-        SELECT_MODEL: [CallbackQueryHandler(model_selected_callback, pattern="^custom_model_")],
         CONFIRM: [
             CallbackQueryHandler(pay_with_tokens_callback, pattern="^custom_pay_tokens$"),
             CallbackQueryHandler(pay_with_money_callback, pattern="^custom_pay_money$"),

@@ -283,10 +283,11 @@ class AITunnelService:
         return results
 
     # ---------- КАСТОМНАЯ ГЕНЕРАЦИЯ (произвольный промпт) ----------
+            # ---------- КАСТОМНАЯ ГЕНЕРАЦИЯ (произвольный промпт) ----------
     async def generate_custom_photo(self, user_photo_paths: list, prompt: str, num_images: int = 1) -> list:
         """
-        Генерация фото по произвольному промпту (кастомная генерация).
-        Использует модель Gemini 3.1 Flash для одного референсного изображения.
+        Генерация фото по произвольному промпту.
+        Используется только GPT Image High (премиум).
         """
         try:
             if not user_photo_paths:
@@ -307,77 +308,50 @@ class AITunnelService:
                 logger.error("❌ Ни одно из фото пользователя не найдено на диске")
                 return []
 
-            # Кодируем изображение в base64
-            with open(ref_photo_path, "rb") as f:
-                image_data = base64.b64encode(f.read()).decode("utf-8")
-            data_url = f"data:image/jpeg;base64,{image_data}"
-
             results = []
+
+            # ---------- GPT Image через /images/edits ----------
             for i in range(num_images):
                 try:
                     async with aiohttp.ClientSession() as session:
+                        form_data = aiohttp.FormData()
+                        form_data.add_field('model', 'gpt-image-1.5')
+                        with open(ref_photo_path, 'rb') as f:
+                            image_bytes = f.read()
+                        form_data.add_field('image[]', image_bytes, filename='photo.jpg', content_type='image/jpeg')
+                        form_data.add_field('prompt', prompt)
+                        form_data.add_field('quality', self.quality)
+                        form_data.add_field('size', self.size)
+                        form_data.add_field('n', str(num_images))
+
                         headers = {
-                            "Authorization": f"Bearer {self.api_key}",
-                            "Content-Type": "application/json"
+                            "Authorization": f"Bearer {self.api_key}"
                         }
-                        payload = {
-                            "model": Config.AITUNNEL_IMAGE_MODEL,  # gemini-3.1-flash-image-preview
-                            "messages": [
-                                {
-                                    "role": "user",
-                                    "content": [
-                                        {"type": "image_url", "image_url": {"url": data_url}},
-                                        {"type": "text", "text": prompt}
-                                    ]
-                                }
-                            ],
-                            "modalities": ["image", "text"],
-                            "max_tokens": 1000
-                        }
-                        logger.info(f"Отправляем запрос к Gemini с промптом: {prompt[:100]}...")
+                        logger.info(f"Отправляем запрос к GPT с промптом: {prompt[:100]}...")
                         async with session.post(
-                            f"{self.base_url}/chat/completions",
+                            f"{self.base_url}/images/edits",
                             headers=headers,
-                            json=payload,
-                            timeout=aiohttp.ClientTimeout(total=60)
+                            data=form_data
                         ) as resp:
                             if resp.status == 200:
-                                result = await resp.json()
-                                # Логируем полный ответ для отладки (можно убрать после отладки)
-                                logger.debug(f"Ответ от API: {json.dumps(result, indent=2)[:500]}")
-                                if 'choices' in result and result['choices']:
-                                    message = result['choices'][0].get('message', {})
-                                    image_added = False
-                                    # Сначала ищем в поле images
-                                    if 'images' in message and message['images']:
-                                        for img in message['images']:
-                                            if 'image_url' in img and 'url' in img['image_url']:
-                                                results.append(img['image_url']['url'])
-                                                image_added = True
-                                                break
-                                            elif 'b64_json' in img:
-                                                results.append(f"data:image/png;base64,{img['b64_json']}")
-                                                image_added = True
-                                                break
-                                    # Если не нашли, пробуем content
-                                    if not image_added and 'content' in message and message['content']:
-                                        content = message['content']
-                                        if isinstance(content, str) and content.startswith('data:image'):
-                                            results.append(content)
-                                            image_added = True
-                                    if not image_added:
-                                        # Если ничего не нашли, логируем структуру ответа
-                                        logger.error(f"❌ Не удалось извлечь изображение из ответа. Полный ответ: {json.dumps(result, indent=2)}")
+                                data = await resp.json()
+                                if 'data' in data:
+                                    for item in data['data']:
+                                        if 'b64_json' in item:
+                                            results.append(f"data:image/png;base64,{item['b64_json']}")
+                                        elif 'url' in item:
+                                            results.append(item['url'])
                                 else:
-                                    logger.error(f"❌ Нет choices в ответе: {result}")
+                                    logger.error(f"❌ Нет data в ответе GPT: {data}")
                             else:
                                 error_text = await resp.text()
-                                logger.error(f"❌ Ошибка Gemini при кастомной генерации: {resp.status} - {error_text}")
+                                logger.error(f"❌ Ошибка GPT при кастомной генерации: {resp.status} - {error_text}")
                 except Exception as e:
-                    logger.error(f"❌ Ошибка при кастомной генерации: {e}", exc_info=True)
+                    logger.error(f"❌ Ошибка при генерации GPT: {e}", exc_info=True)
 
             logger.info(f"✅ Кастомная генерация завершена, получено {len(results)} фото")
             return results
+
         except Exception as e:
             logger.error(f"❌ Общая ошибка в generate_custom_photo: {e}", exc_info=True)
             return []

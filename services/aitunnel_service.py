@@ -293,6 +293,7 @@ class AITunnelService:
         """
         Генерация парного фото через Nano Banana Pro (gemini-3-pro-image-preview)
         с высоким качеством и сохранением лиц.
+        Возвращает список с одним изображением (первым найденным).
         """
         try:
             with open(male_photo_path, "rb") as f:
@@ -323,7 +324,6 @@ class AITunnelService:
                     "Authorization": f"Bearer {self.api_key}",
                     "Content-Type": "application/json"
                 }
-                # Используем модель gemini-3-pro-image-preview (Nano Banana Pro)
                 payload = {
                     "model": "gemini-3-pro-image-preview",
                     "messages": [
@@ -350,14 +350,20 @@ class AITunnelService:
                         images = []
                         if 'choices' in result and result['choices']:
                             message = result['choices'][0].get('message', {})
-                            if 'images' in message:
+                            # Сначала ищем в поле images
+                            if 'images' in message and message['images']:
                                 for img in message['images']:
                                     if 'image_url' in img and 'url' in img['image_url']:
                                         images.append(img['image_url']['url'])
+                                        break  # берём только первое
                                     elif 'b64_json' in img:
                                         images.append(f"data:image/png;base64,{img['b64_json']}")
-                            elif 'content' in message and message['content'].startswith('data:image'):
-                                images.append(message['content'])
+                                        break
+                            # Если нет, пробуем content (но он не должен быть None)
+                            elif 'content' in message and message['content'] is not None:
+                                content = message['content']
+                                if isinstance(content, str) and content.startswith('data:image'):
+                                    images.append(content)
                         return images
                     else:
                         error_text = await resp.text()

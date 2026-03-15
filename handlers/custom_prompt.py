@@ -12,7 +12,7 @@ from utils.helpers import send_photo_or_fallback
 logger = logging.getLogger(__name__)
 
 # Состояния диалога
-CHECK_PHOTOS, GET_PROMPT, SELECT_MODEL, CONFIRM = range(4)
+GET_PROMPT, SELECT_MODEL, CONFIRM = range(3)  # CHECK_PHOTOS не нужен, т.к. проверка в начале
 
 # Стоимость в жетонах
 TOKEN_COST_GEMINI = 1
@@ -112,6 +112,10 @@ async def pay_with_tokens_callback(update: Update, context: ContextTypes.DEFAULT
         await query.edit_message_text("❌ Недостаточно жетонов.")
         return ConversationHandler.END
 
+    # Сохраняем информацию об оплате для возможного возврата
+    context.user_data['custom_paid_with_tokens'] = True
+    context.user_data['custom_token_cost'] = token_cost
+
     await query.edit_message_text("⏳ Генерация с использованием жетонов...")
     await generate_custom_photo(user_id, context.bot, db, context)
     return ConversationHandler.END
@@ -197,10 +201,11 @@ async def generate_custom_photo(user_id: int, bot, db, context):
             service = AITunnelService()
             logger.info(f"Custom generation with Gemini for user {user_id}")
         else:
-            # ✅ ИСПРАВЛЕНО: размер 1536x1024 (горизонтальный)
+            # Для GPT используем горизонтальный размер
             service = AITunnelService(model_type="gpt", quality="high", size="1536x1024")
             logger.info(f"Custom generation with GPT for user {user_id}")
 
+        # Вызываем метод generate_custom_photo (добавлен в aitunnel_service.py)
         results = await service.generate_custom_photo(
             user_photo_paths=photo_paths,
             prompt=full_prompt,
@@ -209,10 +214,22 @@ async def generate_custom_photo(user_id: int, bot, db, context):
 
         if results:
             await bot.send_message(user_id, "✅ Ваше фото готово!")
-            for image_data in results:
-                await send_photo_or_fallback(bot, user_id, image_data)
+            # Отправляем только первое изображение, чтобы избежать дублей
+            await send_photo_or_fallback(bot, user_id, results[0])
         else:
             await bot.send_message(user_id, "❌ Не удалось сгенерировать фото. Попробуйте позже.")
+            # Возврат жетонов при ошибке
+            if context.user_data.get('custom_paid_with_tokens'):
+                token_cost = context.user_data.get('custom_token_cost', 1)
+                await db.add_tokens(user_id, token_cost)
+                await bot.send_message(user_id, f"💎 Вам возвращено {token_cost} жетонов.")
+            return
+
+        # Очищаем временные данные
+        context.user_data.pop('custom_prompt', None)
+        context.user_data.pop('custom_model', None)
+        context.user_data.pop('custom_paid_with_tokens', None)
+        context.user_data.pop('custom_token_cost', None)
 
         await bot.send_message(
             chat_id=user_id,
@@ -223,6 +240,11 @@ async def generate_custom_photo(user_id: int, bot, db, context):
     except Exception as e:
         logger.error(f"Ошибка генерации кастомного фото: {e}", exc_info=True)
         await bot.send_message(user_id, "❌ Произошла ошибка. Мы уже работаем над её исправлением.")
+        # Возврат жетонов при исключении
+        if context and context.user_data.get('custom_paid_with_tokens'):
+            token_cost = context.user_data.get('custom_token_cost', 1)
+            await db.add_tokens(user_id, token_cost)
+            await bot.send_message(user_id, f"💎 Вам возвращено {token_cost} жетонов.")
 
 # ConversationHandler
 custom_prompt_conv = ConversationHandler(

@@ -282,6 +282,95 @@ class AITunnelService:
         logger.info(f"✅ Генерация завершена, получено {len(results)} фото")
         return results
 
+    # ---------- КАСТОМНАЯ ГЕНЕРАЦИЯ (произвольный промпт) ----------
+    async def generate_custom_photo(self, user_photo_paths: list, prompt: str, num_images: int = 1) -> list:
+        """
+        Генерация фото по произвольному промпту (кастомная генерация).
+        Использует модель Gemini 3.1 Flash (как базовую) для одного референсного изображения.
+        """
+        try:
+            if not user_photo_paths:
+                logger.error("❌ Список фото пользователя пуст")
+                return []
+
+            # Находим первый существующий файл
+            ref_photo_path = None
+            for path in user_photo_paths:
+                if os.path.exists(path):
+                    ref_photo_path = path
+                    logger.info(f"✅ Используем референс фото для кастомной генерации: {ref_photo_path}")
+                    break
+                else:
+                    logger.warning(f"⚠️ Файл не найден: {path}")
+
+            if not ref_photo_path:
+                logger.error("❌ Ни одно из фото пользователя не найдено на диске")
+                return []
+
+            # Кодируем изображение в base64
+            with open(ref_photo_path, "rb") as f:
+                image_data = base64.b64encode(f.read()).decode("utf-8")
+            data_url = f"data:image/jpeg;base64,{image_data}"
+
+            results = []
+            for i in range(num_images):
+                try:
+                    async with aiohttp.ClientSession() as session:
+                        headers = {
+                            "Authorization": f"Bearer {self.api_key}",
+                            "Content-Type": "application/json"
+                        }
+                        payload = {
+                            "model": Config.AITUNNEL_IMAGE_MODEL,  # gemini-3.1-flash-image-preview
+                            "messages": [
+                                {
+                                    "role": "user",
+                                    "content": [
+                                        {"type": "image_url", "image_url": {"url": data_url}},
+                                        {"type": "text", "text": prompt}
+                                    ]
+                                }
+                            ],
+                            "modalities": ["image", "text"],
+                            "max_tokens": 1000
+                        }
+                        async with session.post(
+                            f"{self.base_url}/chat/completions",
+                            headers=headers,
+                            json=payload,
+                            timeout=aiohttp.ClientTimeout(total=60)
+                        ) as resp:
+                            if resp.status == 200:
+                                result = await resp.json()
+                                if 'choices' in result and result['choices']:
+                                    message = result['choices'][0].get('message', {})
+                                    image_added = False
+                                    # Сначала ищем в поле images
+                                    if 'images' in message and message['images']:
+                                        for img in message['images']:
+                                            if 'image_url' in img and 'url' in img['image_url']:
+                                                results.append(img['image_url']['url'])
+                                                image_added = True
+                                                break
+                                            elif 'b64_json' in img:
+                                                results.append(f"data:image/png;base64,{img['b64_json']}")
+                                                image_added = True
+                                                break
+                                    # Если не нашли, пробуем content
+                                    if not image_added and 'content' in message and message['content'] and message['content'].startswith('data:image'):
+                                        results.append(message['content'])
+                            else:
+                                error_text = await resp.text()
+                                logger.error(f"❌ Ошибка Gemini при кастомной генерации: {resp.status} - {error_text}")
+                except Exception as e:
+                    logger.error(f"❌ Ошибка при кастомной генерации: {e}", exc_info=True)
+
+            logger.info(f"✅ Кастомная генерация завершена, получено {len(results)} фото")
+            return results
+        except Exception as e:
+            logger.error(f"❌ Общая ошибка в generate_custom_photo: {e}", exc_info=True)
+            return []
+
     # ---------- ПАРНЫЕ ФОТО через Nano Banana Pro (gemini-3-pro-image-preview) ----------
     async def generate_couple_photo_nanobanana(
         self,

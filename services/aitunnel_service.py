@@ -4,6 +4,8 @@ import logging
 import aiohttp
 import asyncio
 import json
+from PIL import Image
+import io
 from config import Config
 
 logger = logging.getLogger(__name__)
@@ -365,30 +367,45 @@ class AITunnelService:
             logger.error(f"❌ Ошибка при генерации Nano Banana Pro: {e}", exc_info=True)
             return []
 
-    # ---------- ВИДЕО Sora 2 Pro (Image-to-Video) через JSON ----------
-    async def generate_video_sora_i2v(self, image_paths: list, prompt: str, size: str = "1280x720", duration: int = 8) -> bytes | None:
+    # ---------- ВИДЕО Sora 2 Pro (Image-to-Video) через JSON с изменением размера ----------
+    async def generate_video_sora_i2v(self, image_paths: list, prompt: str, size: str = "1280x720", duration: int = 4) -> bytes | None:
         """
         Генерация видео из изображения через Sora 2 Pro.
-        duration может быть 4, 8 или 12 (секунды).
+        duration может быть 4, 8 или 12 (секунды). По умолчанию 4 для экономии.
+        Изображение автоматически изменяется до требуемого размера с добавлением чёрных полей.
         """
         try:
             # Проверяем допустимость duration
             allowed = [4, 8, 12]
             if duration not in allowed:
-                logger.warning(f"Недопустимое значение duration={duration}, используем 8")
-                duration = 8
+                logger.warning(f"Недопустимое значение duration={duration}, используем 4")
+                duration = 4
             seconds_str = str(duration)
 
             image_path = image_paths[0]
-            with open(image_path, "rb") as f:
-                image_base64 = base64.b64encode(f.read()).decode("utf-8")
+
+            # Открываем изображение и изменяем размер до target_width x target_height
+            target_width, target_height = map(int, size.split('x'))
+            with Image.open(image_path) as img:
+                # Изменяем размер с сохранением пропорций и обрезаем до точного размера
+                img.thumbnail((target_width, target_height), Image.LANCZOS)
+                # Создаём новое изображение нужного размера с чёрным фоном и вставляем в центр
+                new_img = Image.new('RGB', (target_width, target_height), (0, 0, 0))
+                paste_x = (target_width - img.width) // 2
+                paste_y = (target_height - img.height) // 2
+                new_img.paste(img, (paste_x, paste_y))
+                buffer = io.BytesIO()
+                new_img.save(buffer, format='JPEG')
+                image_bytes = buffer.getvalue()
+
+            image_base64 = base64.b64encode(image_bytes).decode("utf-8")
             data_url = f"data:image/jpeg;base64,{image_base64}"
 
             payload = {
                 "model": "sora-2-pro",
                 "prompt": prompt,
                 "size": size,
-                "seconds": seconds_str,      # строка!
+                "seconds": seconds_str,
                 "input_reference": {
                     "image_url": data_url
                 }

@@ -19,8 +19,8 @@ PHOTO, PROMPT, MODEL_SELECT, CONFIRM = range(4)
 MAX_PHOTOS = 3
 
 # Цена и стоимость в жетонах для видео
-VIDEO_PRICE = 110
-VIDEO_TOKEN_COST = 3
+VIDEO_PRICE = 280
+VIDEO_TOKEN_COST = 8
 
 # Модели для видео (пока одна)
 VIDEO_MODELS = {
@@ -306,7 +306,7 @@ async def generate_video_from_data(user_id: int, bot: Bot, db, data: dict):
             image_paths=photo_paths,
             prompt=prompt,
             size="1280x720",
-            duration=8
+            duration=4
         )
 
         if video_data:

@@ -10,7 +10,7 @@ import asyncio
 logger = logging.getLogger(__name__)
 
 # ⚠️ ВАШ FILE_ID ДЛЯ ПРИВЕТСТВИЯ (можно менять на любой)
-WELCOME_MEDIA_FILE_ID = "BAACAgIAAxkBAAIL52mzCKd3qkobljDWvJx5nEt2jTBUAAL_iAAC-RWgSfKPb99jiIivOgQ"
+WELCOME_MEDIA_FILE_ID = "BAACAgIAAxkBAAINK2m2ovEkC-IgPrVDWBdZEP3xnt2bAALjlQAC5UGxSQOUHY4Gm49-OgQ"
 
 async def send_welcome_message(chat_id: int, first_name: str, bot: Bot):
     welcome_text = (
@@ -27,11 +27,11 @@ async def send_welcome_message(chat_id: int, first_name: str, bot: Bot):
         f"• Nano Banana Pro – 75₽ / 2 жетона (максимальное качество)\n\n"
         f"🎬 *Видео*\n"
         f"• Создание видео по текстовому описанию\n"
-        f"• Sora 2 Pro – 110₽ / 3 жетона\n\n"
+        f"• Sora 2 Pro – 280₽ / 8 жетона\n\n"
         f"💎 *Жетоны*\n"
         f"• Пакет 20 жетонов – 700₽\n"
         f"• Gemini = 1 жетон, GPT Image / Nano Banana = 2 жетона\n"
-        f"• Видео = 3 жетона\n\n"
+        f"• Видео = 8 жетона\n\n"
         f"👇 Жми на кнопки ниже и пробуй!"
     )
 
@@ -66,7 +66,7 @@ async def my_tokens_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "• GPT Image High = 2 жетона\n"
         "• Nano Banana Pro = 2 жетона\n"
         "• Парные фото = 2 жетона\n"
-        "• Видео Sora = 3 жетона"
+        "• Видео Sora = 8 жетона"
     )
     keyboard = [[InlineKeyboardButton("💎 Купить 20 жетонов за 700₽", callback_data="buy_tokens")]]
     await update.message.reply_text(
@@ -308,7 +308,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "**🎬 Видео**\n"
         "1. Нажми «🎬 Создать видео» в главном меню.\n"
         "2. Введи текстовое описание видео.\n"
-        "3. Оплати 110₽ или используй 3 жетона.\n"
+        "3. Оплати 280₽ или используй 8 жетона.\n"
         "4. Подожди 1–2 минуты, видео придёт автоматически.\n\n"
         "**💎 Жетоны**\n"
         "• 20 жетонов = 700₽ (команда /buy20).\n"

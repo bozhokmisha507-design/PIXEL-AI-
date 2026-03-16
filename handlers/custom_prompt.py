@@ -19,7 +19,15 @@ TOKEN_COST = 2
 PRICE = Config.PRICE_PREMIUM  # 76 руб
 
 async def custom_prompt_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Начало диалога: проверяем наличие фото."""
+    """Начало диалога: проверяем наличие фото и не запущен ли уже диалог."""
+    # Защита от повторного запуска
+    if context.user_data.get('in_custom_prompt'):
+        await update.message.reply_text(
+            "⚠️ Вы уже начали диалог создания кастомного промпта. Пожалуйста, завершите его или введите /cancel.",
+            reply_markup=get_main_menu_keyboard()
+        )
+        return ConversationHandler.END
+
     user_id = update.effective_user.id
     db = await get_db()
     photo_count = await db.get_user_photo_count(user_id)
@@ -31,6 +39,9 @@ async def custom_prompt_start(update: Update, context: ContextTypes.DEFAULT_TYPE
             reply_markup=get_main_menu_keyboard()
         )
         return ConversationHandler.END
+
+    # Помечаем, что диалог активен
+    context.user_data['in_custom_prompt'] = True
 
     await update.message.reply_text(
         "✍️ *Введите ваш промпт* — описание того, что вы хотите получить на фото.\n\n"
@@ -70,7 +81,7 @@ async def get_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"✅ Промпт сохранён.\n\n"
         f"Модель: GPT Image High\n"
         f"Стоимость: {PRICE}₽ или {TOKEN_COST} жетона.\n\n"
-        f"Как хотите оплатить?",
+        f"👇 **Теперь выберите способ оплаты, нажав одну из кнопок ниже.**",
         parse_mode='Markdown',
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
@@ -86,6 +97,8 @@ async def pay_with_tokens_callback(update: Update, context: ContextTypes.DEFAULT
 
     if not await db.use_tokens(user_id, TOKEN_COST):
         await query.edit_message_text("❌ Недостаточно жетонов.")
+        # Снимаем флаг активности диалога
+        context.user_data.pop('in_custom_prompt', None)
         return ConversationHandler.END
 
     # Сохраняем информацию об оплате для возможного возврата
@@ -94,6 +107,7 @@ async def pay_with_tokens_callback(update: Update, context: ContextTypes.DEFAULT
 
     await query.edit_message_text("⏳ Генерация с использованием жетонов...")
     await generate_custom_photo(user_id, context.bot, db, context)
+    # Флаг будет снят внутри generate_custom_photo при успехе или ошибке
     return ConversationHandler.END
 
 async def pay_with_money_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -129,6 +143,8 @@ async def pay_with_money_callback(update: Update, context: ContextTypes.DEFAULT_
     except Exception as e:
         logger.error(f"Ошибка создания ссылки: {e}")
         await query.edit_message_text("❌ Не удалось создать ссылку. Попробуйте позже.")
+        # Снимаем флаг активности диалога
+        context.user_data.pop('in_custom_prompt', None)
         return ConversationHandler.END
 
     keyboard = [[InlineKeyboardButton(f"💳 Оплатить {amount}₽", url=payment_url)]]
@@ -136,6 +152,8 @@ async def pay_with_money_callback(update: Update, context: ContextTypes.DEFAULT_
         "✨ Для завершения оплаты нажмите кнопку ниже. После оплаты фото придёт автоматически.",
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
+    # Диалог завершён, флаг снимаем
+    context.user_data.pop('in_custom_prompt', None)
     return ConversationHandler.END
 
 async def cancel_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -143,6 +161,8 @@ async def cancel_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     await query.edit_message_text("❌ Операция отменена.")
+    # Снимаем флаг активности диалога
+    context.user_data.pop('in_custom_prompt', None)
     return ConversationHandler.END
 
 async def generate_custom_photo(user_id: int, bot, db, context):
@@ -151,11 +171,13 @@ async def generate_custom_photo(user_id: int, bot, db, context):
         prompt = context.user_data.get('custom_prompt')
         if not prompt:
             await bot.send_message(user_id, "❌ Промпт не найден.")
+            context.user_data.pop('in_custom_prompt', None)
             return
 
         photo_paths = await db.get_user_photos(user_id, "input")
         if not photo_paths:
             await bot.send_message(user_id, "❌ Не найдены ваши фото. Загрузите их через меню.")
+            context.user_data.pop('in_custom_prompt', None)
             return
 
         gender = await db.get_user_gender(user_id)
@@ -183,21 +205,21 @@ async def generate_custom_photo(user_id: int, bot, db, context):
 
         if results:
             await bot.send_message(user_id, "✅ Ваше фото готово!")
-            # Отправляем только первое изображение
             await send_photo_or_fallback(bot, user_id, results[0])
         else:
             await bot.send_message(user_id, "❌ Не удалось сгенерировать фото. Попробуйте позже.")
-            # Возврат жетонов при ошибке
             if context.user_data.get('custom_paid_with_tokens'):
                 token_cost = context.user_data.get('custom_token_cost', TOKEN_COST)
                 await db.add_tokens(user_id, token_cost)
                 await bot.send_message(user_id, f"💎 Вам возвращено {token_cost} жетонов.")
+            context.user_data.pop('in_custom_prompt', None)
             return
 
         # Очищаем временные данные
         context.user_data.pop('custom_prompt', None)
         context.user_data.pop('custom_paid_with_tokens', None)
         context.user_data.pop('custom_token_cost', None)
+        context.user_data.pop('in_custom_prompt', None)
 
         await bot.send_message(
             chat_id=user_id,
@@ -208,11 +230,11 @@ async def generate_custom_photo(user_id: int, bot, db, context):
     except Exception as e:
         logger.error(f"Ошибка генерации кастомного фото: {e}", exc_info=True)
         await bot.send_message(user_id, "❌ Произошла ошибка. Мы уже работаем над её исправлением.")
-        # Возврат жетонов при исключении
         if context and context.user_data.get('custom_paid_with_tokens'):
             token_cost = context.user_data.get('custom_token_cost', TOKEN_COST)
             await db.add_tokens(user_id, token_cost)
             await bot.send_message(user_id, f"💎 Вам возвращено {token_cost} жетонов.")
+        context.user_data.pop('in_custom_prompt', None)
 
 # ConversationHandler
 custom_prompt_conv = ConversationHandler(

@@ -4,7 +4,7 @@ import os
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes, ConversationHandler, CommandHandler, MessageHandler, filters, CallbackQueryHandler
 from config import Config
-from handlers.menu import get_main_menu_keyboard
+from handlers.menu import get_main_menu_keyboard, MAIN_MENU_BUTTONS   # ← добавили импорт кнопок
 from database.db import get_db
 from services.aitunnel_service import AITunnelService
 from utils.helpers import send_photo_or_fallback
@@ -53,13 +53,22 @@ async def custom_prompt_start(update: Update, context: ContextTypes.DEFAULT_TYPE
 
 async def get_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Сохраняем промпт и переходим к выбору способа оплаты."""
-    prompt = update.message.text.strip()
-    if not prompt:
+    text = update.message.text.strip()
+    
+    # Используем импортированный список кнопок главного меню
+    if text in MAIN_MENU_BUTTONS:
+        await update.message.reply_text(
+            "❌ Вы нажали кнопку меню. Пожалуйста, введите текстовое описание того, что хотите получить на фото.",
+            parse_mode='Markdown'
+        )
+        return GET_PROMPT
+
+    if not text:
         await update.message.reply_text("❌ Промпт не может быть пустым. Попробуйте снова.")
         return GET_PROMPT
 
-    context.user_data['custom_prompt'] = prompt
-    logger.info(f"Пользователь {update.effective_user.id} ввёл промпт: {prompt[:50]}...")
+    context.user_data['custom_prompt'] = text
+    logger.info(f"Пользователь {update.effective_user.id} ввёл промпт: {text[:50]}...")
 
     user_id = update.effective_user.id
     db = await get_db()

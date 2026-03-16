@@ -55,12 +55,13 @@ async def custom_prompt_start(update: Update, context: ContextTypes.DEFAULT_TYPE
 async def get_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Сохраняем промпт и переходим к выбору способа оплаты."""
     text = update.message.text.strip()
-    
-    # Если пользователь нажал на другую кнопку главного меню
-    if text in MAIN_MENU_BUTTONS and text != "✍️ Свой промпт":
+
+    # Если пользователь нажал на любую кнопку главного меню (включая "✍️ Свой промпт")
+    if text in MAIN_MENU_BUTTONS:
         # Завершаем текущий диалог
         context.user_data.clear()
         # Передаём управление общему обработчику кнопок
+        from handlers.start import handle_main_menu_buttons
         await handle_main_menu_buttons(update, context)
         return ConversationHandler.END
 

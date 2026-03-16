@@ -283,7 +283,7 @@ class AITunnelService:
         return results
 
     # ---------- КАСТОМНАЯ ГЕНЕРАЦИЯ (произвольный промпт) ----------
-            # ---------- КАСТОМНАЯ ГЕНЕРАЦИЯ (произвольный промпт) ----------
+           
     async def generate_custom_photo(self, user_photo_paths: list, prompt: str, num_images: int = 1) -> list:
         """
         Генерация фото по произвольному промпту.

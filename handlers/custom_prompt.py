@@ -4,7 +4,8 @@ import os
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes, ConversationHandler, CommandHandler, MessageHandler, filters, CallbackQueryHandler
 from config import Config
-from handlers.menu import get_main_menu_keyboard, MAIN_MENU_BUTTONS   # ← добавили импорт кнопок
+from handlers.menu import get_main_menu_keyboard, MAIN_MENU_BUTTONS
+from handlers.start import handle_main_menu_buttons  # ← добавили импорт
 from database.db import get_db
 from services.aitunnel_service import AITunnelService
 from utils.helpers import send_photo_or_fallback
@@ -55,13 +56,13 @@ async def get_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Сохраняем промпт и переходим к выбору способа оплаты."""
     text = update.message.text.strip()
     
-    # Используем импортированный список кнопок главного меню
-    if text in MAIN_MENU_BUTTONS:
-        await update.message.reply_text(
-            "❌ Вы нажали кнопку меню. Пожалуйста, введите текстовое описание того, что хотите получить на фото.",
-            parse_mode='Markdown'
-        )
-        return GET_PROMPT
+    # Если пользователь нажал на другую кнопку главного меню
+    if text in MAIN_MENU_BUTTONS and text != "✍️ Свой промпт":
+        # Завершаем текущий диалог
+        context.user_data.clear()
+        # Передаём управление общему обработчику кнопок
+        await handle_main_menu_buttons(update, context)
+        return ConversationHandler.END
 
     if not text:
         await update.message.reply_text("❌ Промпт не может быть пустым. Попробуйте снова.")

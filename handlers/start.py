@@ -54,6 +54,13 @@ async def send_welcome_message(chat_id: int, first_name: str, bot: Bot):
         logger.error(f"Ошибка отправки медиа: {e}")
         await bot.send_message(chat_id, text=welcome_text, parse_mode='Markdown', reply_markup=get_main_menu_keyboard())
 
+# ===== НОВАЯ ФУНКЦИЯ: показать главное меню без запроса пола =====
+async def show_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Просто показывает главное меню, без проверки пола."""
+    user = update.effective_user
+    first_name = user.first_name
+    await send_welcome_message(update.effective_chat.id, first_name, context.bot)
+
 # ===== Функция для показа баланса жетонов =====
 async def my_tokens_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
@@ -352,7 +359,8 @@ async def handle_main_menu_buttons(update: Update, context: ContextTypes.DEFAULT
         from handlers.clean import clean_photos_command
         await clean_photos_command(update, context)
     elif text == "🏠 Главное меню":
-        await start_command(update, context)
+        # Вместо start_command используем show_main_menu (без запроса пола)
+        await show_main_menu(update, context)
     elif text == "👫 Парные фото":
         from handlers.couple import couple_start
         await couple_start(update, context)
@@ -361,7 +369,7 @@ async def handle_main_menu_buttons(update: Update, context: ContextTypes.DEFAULT
     elif text == "✍️ Свой промпт":
         from handlers.custom_prompt import custom_prompt_start
         await custom_prompt_start(update, context)
-    elif text == "🎬 Создать видео":  # новая кнопка
+    elif text == "🎬 Создать видео":
         from handlers.video import video_start
         await video_start(update, context)
 

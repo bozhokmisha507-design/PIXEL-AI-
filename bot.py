@@ -22,7 +22,7 @@ from handlers.menu import menu_handler
 from handlers.styles import styles_handler, show_styles_cb, style_selected_cb, model_selected_cb, use_token_cb, buy_generation_cb
 from handlers.upload import upload_conversation
 from handlers.clean import clean_photos_handler
-from handlers.payment import buy_handler, buy_tokens_handler, buy_tokens_callback_handler, check_payments_job
+from handlers.payment import buy_handler, buy_tokens_handler, buy_tokens_callback_handler, check_payments_job, add_tokens_handler  # ← добавлен add_tokens_handler
 from handlers.couple import couple_conv
 from handlers.video import video_conv
 from handlers.custom_prompt import custom_prompt_conv   # ✅ ДОБАВЛЕНО
@@ -85,6 +85,7 @@ async def main_async():
     # Команды
     application.add_handler(buy_handler)
     application.add_handler(buy_tokens_handler)
+    application.add_handler(add_tokens_handler)   # ← добавлен обработчик команды /add_tokens
 
     # Обработчик кнопок главного меню (включая все кнопки)
     application.add_handler(MessageHandler(

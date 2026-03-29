@@ -319,7 +319,36 @@ async def generate_paid_photo(user_id: int, bot: Bot, db, context=None, label=No
             text="❌ Произошла внутренняя ошибка. Мы уже работаем над её исправлением."
         )
 
+# ---------- АДМИНИСТРАТИВНАЯ КОМАНДА: добавление жетонов ----------
+async def add_tokens_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Команда для администратора: начисляет жетоны пользователю."""
+    # Проверка, что пользователь — администратор
+    if update.effective_user.id not in Config.ADMIN_IDS:
+        await update.message.reply_text("❌ У вас нет прав для этой команды.")
+        return
+
+    # Разбор аргументов: /add_tokens <user_id> <количество>
+    args = context.args
+    if len(args) != 2:
+        await update.message.reply_text(
+            "❌ Использование: /add_tokens <user_id> <количество>\n"
+            "Пример: /add_tokens 123456789 10"
+        )
+        return
+
+    try:
+        user_id = int(args[0])
+        amount = int(args[1])
+    except ValueError:
+        await update.message.reply_text("❌ Неверные аргументы. user_id и количество должны быть числами.")
+        return
+
+    db = await get_db()
+    await db.add_tokens(user_id, amount)
+    await update.message.reply_text(f"✅ Пользователю {user_id} начислено {amount} жетонов.")
+
 # ---------- Экспорт обработчиков ----------
 buy_handler = CommandHandler("buy", buy_command)
 buy_tokens_handler = CommandHandler("buy20", buy_tokens_command)
 buy_tokens_callback_handler = CallbackQueryHandler(buy_tokens_callback, pattern="^buy_tokens$")
+add_tokens_handler = CommandHandler("add_tokens", add_tokens_command)  # добавлен

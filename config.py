@@ -3,16 +3,6 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-import os
-from dotenv import load_dotenv
-
-load_dotenv()
-
-import os
-from dotenv import load_dotenv
-
-load_dotenv()
-
 class Config:
     BOT_TOKEN = os.getenv("BOT_TOKEN", "")
     AITUNNEL_API_KEY = os.getenv("AITUNNEL_API_KEY", "")
@@ -44,8 +34,8 @@ class Config:
     MAX_PHOTOS = 5
     RECOMMENDED_PHOTOS = 4
 
-    # ==================== ВСЕ СТИЛИ ====================
-    STYLES = { ... }  # (оставляем без изменений, можно не копировать весь словарь)
+    # Список администраторов (из переменной окружения или значения по умолчанию)
+    ADMIN_IDS = [int(x) for x in os.getenv("ADMIN_IDS", "955206480,5063386675").split(",") if x.strip()]
 
     # ==================== ВСЕ СТИЛИ ====================
     STYLES = {
@@ -221,5 +211,3 @@ class Config:
     def ensure_dirs(cls):
         os.makedirs(cls.UPLOAD_DIR, exist_ok=True)
         os.makedirs(cls.OUTPUT_DIR, exist_ok=True)
-
-ADMIN_IDS = [955206480, 5063386675]

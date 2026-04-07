@@ -22,10 +22,9 @@ from handlers.menu import menu_handler
 from handlers.styles import styles_handler, show_styles_cb, style_selected_cb, model_selected_cb, use_token_cb, buy_generation_cb
 from handlers.upload import upload_conversation
 from handlers.clean import clean_photos_handler
-from handlers.payment import buy_handler, buy_tokens_handler, buy_tokens_callback_handler, check_payments_job, add_tokens_handler  # ← добавлен add_tokens_handler
+from handlers.payment import buy_handler, buy_tokens_handler, buy_tokens_callback_handler, check_payments_job, add_tokens_handler
 from handlers.couple import couple_conv
 from handlers.video import video_conv
-from handlers.custom_prompt import custom_prompt_conv   # ✅ ДОБАВЛЕНО
 
 from webhook_server import start_webhook_server
 
@@ -70,7 +69,6 @@ async def main_async():
     application.add_handler(upload_conversation)
     application.add_handler(couple_conv)
     application.add_handler(video_conv)
-    application.add_handler(custom_prompt_conv)  # ✅ ДОБАВЛЕНО
     application.add_handler(secret_link_conv)
 
     # Callback-обработчики
@@ -85,9 +83,9 @@ async def main_async():
     # Команды
     application.add_handler(buy_handler)
     application.add_handler(buy_tokens_handler)
-    application.add_handler(add_tokens_handler)   # ← добавлен обработчик команды /add_tokens
+    application.add_handler(add_tokens_handler)  # <-- ДОБАВЛЕНО
 
-    # Обработчик кнопок главного меню (включая все кнопки)
+    # Обработчик кнопок главного меню
     application.add_handler(MessageHandler(
         filters.Text([
             "📤 Загрузить фото",
@@ -98,7 +96,7 @@ async def main_async():
             "🏠 Главное меню",
             "👫 Парные фото",
             "💎 Мои жетоны",
-            "✍️ Свой промпт",      # присутствует
+            "✍️ Свой промпт",
             "🎬 Создать видео"
         ]),
         handle_main_menu_buttons

@@ -10,7 +10,7 @@ import asyncio
 logger = logging.getLogger(__name__)
 
 # ⚠️ ВАШ FILE_ID ДЛЯ ПРИВЕТСТВИЯ (можно менять на любой)
-WELCOME_MEDIA_FILE_ID = "BAACAgIAAxkBAAINK2m2ovEkC-IgPrVDWBdZEP3xnt2bAALjlQAC5UGxSQOUHY4Gm49-OgQ"
+WELCOME_MEDIA_FILE_ID = "BAACAgIAAxkBAAIPfmnVY8503lsboO3ztZoOdaoE4-epAAJ7oQACuTuoSiWAaYCzUAMoOwQ"
 
 async def send_welcome_message(chat_id: int, first_name: str, bot: Bot):
     welcome_text = (

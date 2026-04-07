@@ -25,6 +25,7 @@ from handlers.clean import clean_photos_handler
 from handlers.payment import buy_handler, buy_tokens_handler, buy_tokens_callback_handler, check_payments_job, add_tokens_handler
 from handlers.couple import couple_conv
 from handlers.video import video_conv
+from handlers.custom_prompt import custom_prompt_conv  # <-- ДОБАВЛЕНО
 
 from webhook_server import start_webhook_server
 
@@ -69,6 +70,7 @@ async def main_async():
     application.add_handler(upload_conversation)
     application.add_handler(couple_conv)
     application.add_handler(video_conv)
+    application.add_handler(custom_prompt_conv)  # <-- ДОБАВЛЕНО
     application.add_handler(secret_link_conv)
 
     # Callback-обработчики
@@ -83,7 +85,7 @@ async def main_async():
     # Команды
     application.add_handler(buy_handler)
     application.add_handler(buy_tokens_handler)
-    application.add_handler(add_tokens_handler)  # <-- ДОБАВЛЕНО
+    application.add_handler(add_tokens_handler)
 
     # Обработчик кнопок главного меню
     application.add_handler(MessageHandler(

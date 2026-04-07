@@ -324,7 +324,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "  - GPT Image High = 2 жетона\n"
         "  - Nano Banana Pro = 2 жетона\n"
         "  - Парные фото = 2 жетона\n"
-        "  - Видео = 3 жетона\n"
+        "  - Видео = 8 жетона\n"
         "• Баланс можно посмотреть по кнопке «💎 Мои жетоны».\n\n"
         "**❓ Другие команды**\n"
         "• /start – главное меню\n"

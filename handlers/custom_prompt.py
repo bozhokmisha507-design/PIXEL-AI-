@@ -1,11 +1,9 @@
 import uuid
 import logging
-import os
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes, ConversationHandler, CommandHandler, MessageHandler, filters, CallbackQueryHandler
 from config import Config
 from handlers.menu import get_main_menu_keyboard, MAIN_MENU_BUTTONS
-from handlers.start import handle_main_menu_buttons  # ← добавили импорт
 from database.db import get_db
 from services.aitunnel_service import AITunnelService
 from utils.helpers import send_photo_or_fallback
@@ -108,17 +106,14 @@ async def pay_with_tokens_callback(update: Update, context: ContextTypes.DEFAULT
 
     if not await db.use_tokens(user_id, TOKEN_COST):
         await query.edit_message_text("❌ Недостаточно жетонов.")
-        # Снимаем флаг активности диалога
         context.user_data.pop('in_custom_prompt', None)
         return ConversationHandler.END
 
-    # Сохраняем информацию об оплате для возможного возврата
     context.user_data['custom_paid_with_tokens'] = True
     context.user_data['custom_token_cost'] = TOKEN_COST
 
     await query.edit_message_text("⏳ Генерация с использованием жетонов...")
     await generate_custom_photo(user_id, context.bot, db, context)
-    # Флаг будет снят внутри generate_custom_photo при успехе или ошибке
     return ConversationHandler.END
 
 async def pay_with_money_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -130,7 +125,6 @@ async def pay_with_money_callback(update: Update, context: ContextTypes.DEFAULT_
     label = f"custom_{user_id}_{uuid.uuid4().hex[:8]}"
     amount = PRICE
 
-    # Сохраняем данные заказа (модель всегда GPT)
     data = {
         'prompt': context.user_data['custom_prompt'],
         'model': 'gpt'
@@ -154,7 +148,6 @@ async def pay_with_money_callback(update: Update, context: ContextTypes.DEFAULT_
     except Exception as e:
         logger.error(f"Ошибка создания ссылки: {e}")
         await query.edit_message_text("❌ Не удалось создать ссылку. Попробуйте позже.")
-        # Снимаем флаг активности диалога
         context.user_data.pop('in_custom_prompt', None)
         return ConversationHandler.END
 
@@ -163,7 +156,6 @@ async def pay_with_money_callback(update: Update, context: ContextTypes.DEFAULT_
         "✨ Для завершения оплаты нажмите кнопку ниже. После оплаты фото придёт автоматически.",
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
-    # Диалог завершён, флаг снимаем
     context.user_data.pop('in_custom_prompt', None)
     return ConversationHandler.END
 
@@ -172,7 +164,6 @@ async def cancel_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     await query.edit_message_text("❌ Операция отменена.")
-    # Снимаем флаг активности диалога
     context.user_data.pop('in_custom_prompt', None)
     return ConversationHandler.END
 
@@ -192,8 +183,6 @@ async def generate_custom_photo(user_id: int, bot, db, context):
             return
 
         gender = await db.get_user_gender(user_id)
-
-        # Адаптируем промпт с учётом пола
         if gender == 'male':
             full_prompt = f"Photo of this man. {prompt}"
         elif gender == 'female':
@@ -201,10 +190,8 @@ async def generate_custom_photo(user_id: int, bot, db, context):
         else:
             full_prompt = f"Photo of this person. {prompt}"
 
-        # Добавляем инструкцию горизонтального формата
         full_prompt += " Landscape orientation, horizontal composition, aspect ratio 16:9, wide format."
 
-        # Всегда используем GPT
         service = AITunnelService(model_type="gpt", quality="high", size="1536x1024")
         logger.info(f"Custom generation with GPT for user {user_id}")
 
@@ -246,6 +233,53 @@ async def generate_custom_photo(user_id: int, bot, db, context):
             await db.add_tokens(user_id, token_cost)
             await bot.send_message(user_id, f"💎 Вам возвращено {token_cost} жетонов.")
         context.user_data.pop('in_custom_prompt', None)
+
+# ---------- Функция для оплаты деньгами (вызывается из payment.py) ----------
+async def generate_custom_photo_from_data(user_id: int, bot, db, data: dict):
+    """Генерация по кастомному промпту после оплаты деньгами (вызывается из payment.py)."""
+    try:
+        prompt = data.get('prompt')
+        if not prompt:
+            await bot.send_message(user_id, "❌ Промпт не найден.")
+            return
+
+        photo_paths = await db.get_user_photos(user_id, "input")
+        if not photo_paths:
+            await bot.send_message(user_id, "❌ Не найдены ваши фото. Загрузите их через меню.")
+            return
+
+        gender = await db.get_user_gender(user_id)
+        if gender == 'male':
+            full_prompt = f"Photo of this man. {prompt}"
+        elif gender == 'female':
+            full_prompt = f"Photo of this woman. {prompt}"
+        else:
+            full_prompt = f"Photo of this person. {prompt}"
+
+        full_prompt += " Landscape orientation, horizontal composition, aspect ratio 16:9, wide format."
+
+        service = AITunnelService(model_type="gpt", quality="high", size="1536x1024")
+        results = await service.generate_custom_photo(
+            user_photo_paths=photo_paths,
+            prompt=full_prompt,
+            num_images=1
+        )
+
+        if results:
+            await bot.send_message(user_id, "✅ Ваше фото готово!")
+            await send_photo_or_fallback(bot, user_id, results[0])
+        else:
+            await bot.send_message(user_id, "❌ Не удалось сгенерировать фото. Попробуйте позже.")
+
+        await bot.send_message(
+            chat_id=user_id,
+            text="👇 *Главное меню*:",
+            parse_mode='Markdown',
+            reply_markup=get_main_menu_keyboard()
+        )
+    except Exception as e:
+        logger.error(f"Ошибка генерации кастомного фото (оплата деньгами): {e}", exc_info=True)
+        await bot.send_message(user_id, "❌ Произошла ошибка. Мы уже работаем над её исправлением.")
 
 # ConversationHandler
 custom_prompt_conv = ConversationHandler(

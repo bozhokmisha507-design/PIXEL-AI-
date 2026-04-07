@@ -1,7 +1,5 @@
 import uuid
 import logging
-import base64
-import re
 from telegram import Update, Bot, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes, CommandHandler, CallbackQueryHandler
 from yoomoney import Quickpay, Client
@@ -203,6 +201,17 @@ async def check_payments_job(context: ContextTypes.DEFAULT_TYPE):
                                 chat_id=user_id,
                                 text="✅ Оплата получена, но произошла ошибка при загрузке данных. Пожалуйста, начните заново с кнопки «👫 Парные фото»."
                             )
+                    elif label.startswith("custom_"):
+                        order_data = await db.get_order_data(label)
+                        if order_data:
+                            from handlers.custom_prompt import generate_custom_photo_from_data
+                            await generate_custom_photo_from_data(user_id, context.bot, db, order_data)
+                        else:
+                            logger.error(f"Нет данных для заказа {label}")
+                            await context.bot.send_message(
+                                chat_id=user_id,
+                                text="✅ Оплата получена, но произошла ошибка. Начните заново с кнопки «✍️ Свой промпт»."
+                            )
                     else:
                         await generate_paid_photo(
                             user_id,
@@ -251,6 +260,21 @@ async def handle_yoomoney_notification(data: dict, bot: Bot, db):
                 )
         except Exception as e:
             logger.error(f"Ошибка при обработке парной оплаты: {e}")
+    elif label.startswith("custom_"):
+        try:
+            user_id = int(label.split('_')[1])
+            order_data = await db.get_order_data(label)
+            if order_data:
+                from handlers.custom_prompt import generate_custom_photo_from_data
+                await generate_custom_photo_from_data(user_id, bot, db, order_data)
+            else:
+                logger.error(f"Нет данных для заказа {label}")
+                await bot.send_message(
+                    chat_id=user_id,
+                    text="✅ Оплата получена, но произошла ошибка. Начните заново с кнопки «✍️ Свой промпт»."
+                )
+        except Exception as e:
+            logger.error(f"Ошибка при обработке кастомной оплаты: {e}")
     else:
         try:
             user_id = int(label.split('_')[1])

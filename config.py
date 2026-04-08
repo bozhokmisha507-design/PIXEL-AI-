@@ -4,37 +4,43 @@ from dotenv import load_dotenv
 load_dotenv()
 
 class Config:
+    # Telegram Bot
     BOT_TOKEN = os.getenv("BOT_TOKEN", "")
+    
+    # AI Tunnel
     AITUNNEL_API_KEY = os.getenv("AITUNNEL_API_KEY", "")
     AITUNNEL_IMAGE_MODEL = os.getenv("AITUNNEL_IMAGE_MODEL", "gemini-3.1-flash-image-preview")
 
-    # ЮMoney
-    YOOMONEY_ACCESS_TOKEN = os.getenv("YOOMONEY_ACCESS_TOKEN")
-    YOOMONEY_WALLET = os.getenv("YOOMONEY_WALLET", "")
+    # ==================== ЮKassa ====================
+    YKASSA_SHOP_ID = int(os.getenv("YKASSA_SHOP_ID", 0))          # Ваш ShopID: 1321604
+    YKASSA_SECRET_KEY = os.getenv("YKASSA_SECRET_KEY", "")        # Секретный ключ из личного кабинета
+
+    # Цены (рубли)
     PRICE_PER_GENERATION = 38          # базовая цена (Gemini)
-    PRICE_PREMIUM = 76                  # премиум цена (GPT Image High)
-    PRICE_NANOBANANA = 75                # цена для Nano Banana Pro (одиночные фото)
-    PRICE_20_TOKENS = 700                # пакет 20 жетонов
-    # Парные фото теперь генерируются через Nano Banana Pro (премиум-качество)
-    COUPLE_PRICE = 75                     # цена парной генерации
-    COUPLE_TOKEN_COST = 2                  # стоимость в жетонах для пар
+    PRICE_PREMIUM = 76                 # премиум цена (GPT Image High)
+    PRICE_NANOBANANA = 75              # цена для Nano Banana Pro (одиночные фото)
+    PRICE_20_TOKENS = 700              # пакет 20 жетонов
+    COUPLE_PRICE = 75                  # цена парной генерации
+    COUPLE_TOKEN_COST = 2              # стоимость в жетонах для пар
 
     # Стоимость в жетонах для одиночных генераций
     TOKEN_COST_GEMINI = 1
     TOKEN_COST_GPT = 2
     TOKEN_COST_NANOBANANA = 2
 
-    # Telegram Payments (на будущее)
+    # Telegram Payments (на будущее, не используется)
     PAYMENT_PROVIDER_TOKEN = os.getenv("PAYMENT_PROVIDER_TOKEN", "")
 
-    UPLOAD_DIR = "uploads"
-    OUTPUT_DIR = "outputs"
+    # Папки для загрузки и вывода – используем общее хранилище, если доступно
+    SHARED_DIR = os.getenv("SHARED_DIR", "/app/shared")
+    UPLOAD_DIR = os.path.join(SHARED_DIR, "uploads")
+    OUTPUT_DIR = os.path.join(SHARED_DIR, "outputs")
 
     MIN_PHOTOS = 2
     MAX_PHOTOS = 5
     RECOMMENDED_PHOTOS = 4
 
-    # Список администраторов (из переменной окружения или значения по умолчанию)
+    # Список администраторов
     ADMIN_IDS = [int(x) for x in os.getenv("ADMIN_IDS", "955206480,5063386675").split(",") if x.strip()]
 
     # ==================== ВСЕ СТИЛИ ====================

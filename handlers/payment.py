@@ -32,6 +32,7 @@ async def buy_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         payment = Payment.create({
             "amount": {"value": str(amount), "currency": "RUB"},
+            "capture": True,   # <-- добавлено для автоматического списания
             "confirmation": {
                 "type": "redirect",
                 "return_url": f"https://t.me/bma3_bot?start=payment_{label}"
@@ -69,6 +70,7 @@ async def buy_tokens_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
     try:
         payment = Payment.create({
             "amount": {"value": str(amount), "currency": "RUB"},
+            "capture": True,   # <-- добавлено для автоматического списания
             "confirmation": {
                 "type": "redirect",
                 "return_url": f"https://t.me/bma3_bot?start=tokens_{label}"
@@ -105,6 +107,7 @@ async def send_tokens_purchase_message(user_id: int, context: ContextTypes.DEFAU
     try:
         payment = Payment.create({
             "amount": {"value": str(amount), "currency": "RUB"},
+            "capture": True,   # <-- добавлено для автоматического списания
             "confirmation": {
                 "type": "redirect",
                 "return_url": f"https://t.me/bma3_bot?start=tokens_{label}"
@@ -183,14 +186,12 @@ async def process_yookassa_webhook(data: dict, bot: Bot, db):
         logger.warning("Нет label в метаданных платежа")
         return
 
-    # Проверяем, не обработан ли уже заказ (чтобы избежать дублирования)
     if await db.is_order_processed(label):
         logger.info(f"Заказ {label} уже обработан, пропускаем")
         return
 
     user_id = int(metadata.get('user_id', 0))
     if not user_id:
-        # Извлекаем user_id из label (как fallback)
         parts = label.split('_')
         if len(parts) > 1:
             try:
@@ -202,7 +203,6 @@ async def process_yookassa_webhook(data: dict, bot: Bot, db):
         logger.error(f"Не удалось определить user_id для label {label}")
         return
 
-    # Обработка разных типов заказов
     if label.startswith("tokens20_"):
         await db.add_tokens(user_id, 20)
         await bot.send_message(
@@ -235,17 +235,10 @@ async def process_yookassa_webhook(data: dict, bot: Bot, db):
                 text="✅ Оплата получена, но произошла ошибка. Начните заново с кнопки «✍️ Свой промпт»."
             )
     else:
-        # Обычная генерация (одиночные фото)
-        # Для неё нам нужен context, но в вебхуке его нет. Передаём context=None.
-        # Генерация сама пометит заказ как processed после успеха.
         await generate_paid_photo(user_id, bot, db, context=None, label=label)
 
-# ---------- Генерация фото (оставляем без изменений) ----------
+# ---------- Генерация фото (вариант А: отмечаем processed только после успеха) ----------
 async def generate_paid_photo(user_id: int, bot: Bot, db, context=None, label=None):
-    """
-    Генерация фото после оплаты.
-    Отмечает заказ обработанным ТОЛЬКО после успешной генерации и отправки.
-    """
     try:
         if label:
             if await db.is_order_processed(label):
@@ -336,7 +329,6 @@ async def generate_paid_photo(user_id: int, bot: Bot, db, context=None, label=No
                 text="❌ Не удалось сгенерировать фото. Пожалуйста, попробуйте позже. "
                      "Если средства были списаны, они вернутся автоматически или обратитесь в поддержку."
             )
-
     except Exception as e:
         logger.error(f"Критическая ошибка в generate_paid_photo для user {user_id}: {e}", exc_info=True)
         await bot.send_message(

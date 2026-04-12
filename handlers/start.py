@@ -1,6 +1,6 @@
 import logging
 import os
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, InputFile
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes, CommandHandler, CallbackQueryHandler, MessageHandler, filters, ConversationHandler
 from config import Config
 from database.db import get_db
@@ -10,8 +10,8 @@ logger = logging.getLogger(__name__)
 
 WELCOME_MEDIA_FILE_ID = "BAACAgIAAxkBAAINK2m2ovEkC-IgPrVDWBdZEP3xnt2bAALjlQAC5UGxSQOUHY4Gm49-OgQ"
 
-# Возможные имена файла оферты (теперь ищем .txt)
-OFFER_FILE_NAMES = ["Публичная_оферта.txt"]
+# Ссылка на публичную оферту (Яндекс.Диск)
+OFFER_URL = "https://disk.yandex.ru/i/epNkqb5zVe5kzQ"
 
 async def send_welcome_message(chat_id: int, first_name: str, bot):
     welcome_text = (
@@ -47,39 +47,17 @@ async def send_welcome_message(chat_id: int, first_name: str, bot):
             await bot.send_message(chat_id, text=welcome_text, parse_mode='Markdown', reply_markup=get_main_menu_keyboard())
 
 async def send_offer_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Отправляет файл оферты (ищет .txt файл)."""
-    used_name = None
-    for name in OFFER_FILE_NAMES:
-        if os.path.exists(name):
-            used_name = name
-            break
-    if used_name:
-        with open(used_name, "rb") as f:
-            await update.message.reply_document(
-                document=InputFile(f, filename="Публичная_оферта.txt"),
-                caption=(
-                    "📜 *Публичная оферта*\n\n"
-                    "Пожалуйста, ознакомьтесь с условиями. Для продолжения нажмите кнопку ниже."
-                ),
-                parse_mode="Markdown",
-                reply_markup=InlineKeyboardMarkup([
-                    [InlineKeyboardButton("✅ Принимаю", callback_data="accept_offer")],
-                    [InlineKeyboardButton("❌ Не принимаю", callback_data="decline_offer")]
-                ])
-            )
-    else:
-        # Запасной вариант: отправить текст
-        logger.warning("Файл оферты не найден, отправляю текстовое сообщение")
-        await update.message.reply_text(
-            "📜 *Публичная оферта*\n\n"
-            "К сожалению, файл оферты временно недоступен. Пожалуйста, примите условия для продолжения.\n\n"
-            "Нажимая кнопку, вы соглашаетесь с условиями.",
-            parse_mode="Markdown",
-            reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("✅ Принимаю", callback_data="accept_offer")],
-                [InlineKeyboardButton("❌ Не принимаю", callback_data="decline_offer")]
-            ])
-        )
+    """Отправляет ссылку на публичную оферту."""
+    await update.message.reply_text(
+        f"📜 *Публичная оферта*\n\n"
+        f"Ознакомиться с условиями можно по ссылке:\n{OFFER_URL}\n\n"
+        f"Нажимая «✅ Принимаю», вы соглашаетесь с условиями оферты.",
+        parse_mode="Markdown",
+        reply_markup=InlineKeyboardMarkup([
+            [InlineKeyboardButton("✅ Принимаю", callback_data="accept_offer")],
+            [InlineKeyboardButton("❌ Не принимаю", callback_data="decline_offer")]
+        ])
+    )
 
 async def offer_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query

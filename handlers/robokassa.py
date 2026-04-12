@@ -6,7 +6,7 @@ from urllib.parse import urlencode
 
 from aiohttp import web
 from telegram import Bot, Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import ContextTypes
+from telegram.ext import ContextTypes, CommandHandler, CallbackQueryHandler
 
 from config import Config
 from database.db import get_db
@@ -96,6 +96,27 @@ async def buy_tokens_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
 
+# ---------- Показать баланс жетонов ----------
+async def my_tokens_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    db = await get_db()
+    tokens = await db.get_user_tokens(user_id)
+
+    text = (
+        f"💎 *Ваш баланс жетонов:* {tokens}\n\n"
+        "• Gemini = 1 жетон\n"
+        "• GPT Image High = 2 жетона\n"
+        "• Nano Banana Pro = 2 жетона\n"
+        "• Парные фото = 2 жетона\n"
+        "• Видео = 8 жетонов"
+    )
+    keyboard = [[InlineKeyboardButton("💎 Купить 20 жетонов за 700₽", callback_data="buy_tokens")]]
+    await update.message.reply_text(
+        text,
+        parse_mode='Markdown',
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+
 # ---------- Административная команда начисления жетонов ----------
 async def add_tokens_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id not in Config.ADMIN_IDS:
@@ -115,9 +136,9 @@ async def add_tokens_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
     await db.add_tokens(user_id, amount)
     await update.message.reply_text(f"✅ Пользователю {user_id} начислено {amount} жетонов.")
 
-# ---------- Генерация фото (скопируйте из вашего старого payment.py) ----------
+# ---------- Генерация фото ----------
 async def generate_paid_photo(user_id: int, bot: Bot, db, context=None, label=None):
-    """Генерация фото после оплаты. (ваша существующая логика)"""
+    """Генерация фото после оплаты."""
     try:
         if label:
             if await db.is_order_processed(label):
@@ -199,20 +220,41 @@ async def robokassa_result_handler(request):
 
     await db.mark_order_processed(inv_id)
 
+    bot = request.app["bot"]
+
     if inv_id.startswith("tokens20_"):
         user_id = int(inv_id.split('_')[1])
         await db.add_tokens(user_id, 20)
-        bot = request.app["bot"]
         await bot.send_message(user_id, "✅ Вам начислено 20 жетонов!")
     elif inv_id.startswith("couple_"):
-        # здесь обработка парных фото, если есть
-        pass
+        user_id = int(inv_id.split('_')[1])
+        order_data = await db.get_order_data(inv_id)
+        if order_data:
+            from handlers.couple import generate_couple_photo_from_data
+            await generate_couple_photo_from_data(user_id, bot, db, order_data)
+        else:
+            logger.error(f"Нет данных для заказа {inv_id}")
+            await bot.send_message(user_id, "✅ Оплата получена, но произошла ошибка. Начните заново с кнопки «👫 Парные фото».")
     elif inv_id.startswith("custom_"):
-        # обработка кастомного промпта
-        pass
+        user_id = int(inv_id.split('_')[1])
+        order_data = await db.get_order_data(inv_id)
+        if order_data:
+            from handlers.custom_prompt import generate_custom_photo_from_data
+            await generate_custom_photo_from_data(user_id, bot, db, order_data)
+        else:
+            logger.error(f"Нет данных для заказа {inv_id}")
+            await bot.send_message(user_id, "✅ Оплата получена, но произошла ошибка. Начните заново с кнопки «✍️ Свой промпт».")
+    elif inv_id.startswith("video_"):
+        user_id = int(inv_id.split('_')[1])
+        order_data = await db.get_order_data(inv_id)
+        if order_data:
+            from handlers.video import generate_video_from_data
+            await generate_video_from_data(user_id, bot, db, order_data)
+        else:
+            logger.error(f"Нет данных для заказа {inv_id}")
+            await bot.send_message(user_id, "✅ Оплата получена, но произошла ошибка. Начните заново с кнопки «🎬 Создать видео».")
     else:
         user_id = int(inv_id.split('_')[1])
-        bot = request.app["bot"]
         await generate_paid_photo(user_id, bot, db, context=None, label=inv_id)
 
     return web.Response(text=f"OK{inv_id}")
@@ -224,3 +266,10 @@ async def robokassa_success_handler(request):
 async def robokassa_fail_handler(request):
     logger.info(f"FailURL: {request.query}")
     return web.Response(text="Платёж не удался. Попробуйте позже.")
+
+# ---------- Экспорт обработчиков ----------
+buy_handler = CommandHandler("buy", buy_command)
+buy_tokens_handler = CommandHandler("buy20", buy_tokens_command)
+buy_tokens_callback_handler = CallbackQueryHandler(buy_tokens_callback, pattern="^buy_tokens$")
+add_tokens_handler = CommandHandler("add_tokens", add_tokens_command)
+my_tokens_handler = CommandHandler("mytokens", my_tokens_command)

@@ -20,7 +20,7 @@ class Database:
             logger.info("✅ Подключение к PostgreSQL установлено")
             
             async with self.pool.acquire() as conn:
-                # Таблица пользователей
+                # Таблица пользователей (без agreed_to_offer, добавим позже)
                 await conn.execute("""
                     CREATE TABLE IF NOT EXISTS users (
                         user_id BIGINT PRIMARY KEY,
@@ -34,6 +34,14 @@ class Database:
                         photo_count INTEGER DEFAULT 0
                     )
                 """)
+
+                # Добавляем колонку agreed_to_offer, если её нет
+                try:
+                    await conn.execute("ALTER TABLE users ADD COLUMN agreed_to_offer BOOLEAN DEFAULT FALSE")
+                    logger.info("✅ Колонка agreed_to_offer добавлена")
+                except Exception as e:
+                    if 'duplicate column' not in str(e).lower():
+                        logger.warning(f"Не удалось добавить колонку agreed_to_offer: {e}")
 
                 # Таблица фотографий
                 await conn.execute("""
@@ -74,7 +82,7 @@ class Database:
                     )
                 """)
 
-                # Проверяем и добавляем индексы для производительности
+                # Индексы
                 await conn.execute("CREATE INDEX IF NOT EXISTS idx_orders_label ON orders(label)")
                 await conn.execute("CREATE INDEX IF NOT EXISTS idx_orders_processed ON orders(processed)")
                 await conn.execute("CREATE INDEX IF NOT EXISTS idx_photos_user_id ON photos(user_id)")
@@ -92,16 +100,16 @@ class Database:
             logger.info("✅ Пул соединений закрыт")
 
     # ===== Пользователи =====
-    async def get_or_create_user(self, user_id: int, username: str = None, first_name: str = None) -> tuple:
+    async def get_or_create_user(self, user_id: int, username: str = None, first_name: str = None) -> dict:
         async with self.pool.acquire() as conn:
             user = await conn.fetchrow("SELECT * FROM users WHERE user_id = $1", user_id)
             if not user:
                 await conn.execute(
-                    "INSERT INTO users (user_id, username, first_name) VALUES ($1, $2, $3)",
-                    user_id, username, first_name
+                    "INSERT INTO users (user_id, username, first_name, agreed_to_offer) VALUES ($1, $2, $3, $4)",
+                    user_id, username, first_name, False
                 )
                 user = await conn.fetchrow("SELECT * FROM users WHERE user_id = $1", user_id)
-            return user
+            return dict(user)
 
     async def get_user_tokens(self, user_id: int) -> int:
         async with self.pool.acquire() as conn:
@@ -122,7 +130,6 @@ class Database:
                 "UPDATE users SET tokens = tokens - $1 WHERE user_id = $2 AND tokens >= $3",
                 cost, user_id, cost
             )
-            # В PostgreSQL результат - строка типа "UPDATE 1" если обновлено
             return "UPDATE 1" in result
 
     # ===== Фотографии =====
@@ -255,6 +262,16 @@ class Database:
             if data:
                 return json.loads(data)
             return None
+
+    # ===== Оферта =====
+    async def set_user_agreed_to_offer(self, user_id: int, value: bool):
+        async with self.pool.acquire() as conn:
+            await conn.execute("UPDATE users SET agreed_to_offer = $1 WHERE user_id = $2", value, user_id)
+
+    async def get_user_agreed_to_offer(self, user_id: int) -> bool:
+        async with self.pool.acquire() as conn:
+            result = await conn.fetchval("SELECT agreed_to_offer FROM users WHERE user_id = $1", user_id)
+            return result or False
 
 # ===== Глобальный экземпляр БД =====
 _db_instance = None

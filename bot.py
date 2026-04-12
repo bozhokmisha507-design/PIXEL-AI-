@@ -17,13 +17,14 @@ from telegram import Update
 from config import Config
 from database.db import get_db, _db_instance
 
-from handlers.start import start_handler, help_handler, handle_main_menu_buttons, gender_callback, secret_link_conv
+from handlers.start import start_handler, help_handler, handle_main_menu_buttons, gender_callback, secret_link_conv, offer_callback
 from handlers.menu import menu_handler
 from handlers.styles import styles_handler, show_styles_cb, style_selected_cb, model_selected_cb, use_token_cb, buy_generation_cb
 from handlers.upload import upload_conversation
 from handlers.clean import clean_photos_handler
 from handlers.robokassa import (
-    buy_handler, buy_tokens_handler, buy_tokens_callback_handler, add_tokens_handler
+    buy_handler, buy_tokens_handler, buy_tokens_callback_handler, add_tokens_handler,
+    my_tokens_handler   # <-- добавлен
 )
 from handlers.couple import couple_conv
 from handlers.video import video_conv
@@ -80,11 +81,13 @@ async def main_async():
     application.add_handler(buy_generation_cb)
     application.add_handler(CallbackQueryHandler(gender_callback, pattern="^set_gender_"))
     application.add_handler(buy_tokens_callback_handler)
+    application.add_handler(CallbackQueryHandler(offer_callback, pattern="^(accept_offer|decline_offer)$"))
 
     # Команды
     application.add_handler(buy_handler)
     application.add_handler(buy_tokens_handler)
     application.add_handler(add_tokens_handler)
+    application.add_handler(my_tokens_handler)   # <-- добавлен
 
     # Обработчик кнопок главного меню
     application.add_handler(MessageHandler(

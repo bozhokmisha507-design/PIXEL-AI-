@@ -4,8 +4,13 @@ import os
 import json
 import aiohttp
 import asyncio
+from decimal import Decimal
+from urllib.parse import urlencode
+import hashlib
+
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, Bot
 from telegram.ext import ContextTypes, ConversationHandler, CommandHandler, MessageHandler, filters, CallbackQueryHandler
+
 from config import Config
 from handlers.menu import get_main_menu_keyboard
 from database.db import get_db
@@ -35,6 +40,28 @@ COUPLE_PROMPTS = {
     "couple_forest": "A romantic close-up portrait of a couple walking in a sunlit forest, holding hands, warm lighting, photorealistic, 8k, highly detailed faces, exact facial features as in reference images, faces clearly visible, sharp focus on faces, medium shot, professional nature photography style, sun rays filtering through trees",
 }
 
+# ---------- Robokassa helpers ----------
+MERCHANT_LOGIN = Config.ROBOKASSA_LOGIN
+PASSWORD_1 = Config.ROBOKASSA_PASSWORD_1
+IS_TEST = Config.ROBOKASSA_TEST_MODE
+ROBOKASSA_URL = "https://merchant.roboxchange.com/Index.aspx"
+
+def generate_signature(out_sum: str, inv_id: str, password: str) -> str:
+    signature_str = f"{MERCHANT_LOGIN}:{out_sum}:{inv_id}:{password}"
+    return hashlib.md5(signature_str.encode()).hexdigest()
+
+def get_payment_link(amount: Decimal, inv_id: str, description: str) -> str:
+    params = {
+        "MrchLogin": MERCHANT_LOGIN,
+        "OutSum": str(amount),
+        "InvId": inv_id,
+        "Desc": description,
+        "SignatureValue": generate_signature(str(amount), inv_id, PASSWORD_1),
+        "Culture": "ru",
+    }
+    return f"{ROBOKASSA_URL}?{urlencode(params)}"
+
+# ---------- Основные функции ----------
 async def couple_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     context.user_data['couple_photos'] = []
@@ -133,7 +160,6 @@ async def pay_with_tokens_callback(update: Update, context: ContextTypes.DEFAULT
         await query.edit_message_text("❌ Недостаточно жетонов.")
         return ConversationHandler.END
 
-    # Сохраняем информацию об оплате жетонами для возможного возврата
     context.user_data['couple_paid_with_tokens'] = True
     context.user_data['couple_token_cost'] = token_cost
 
@@ -142,36 +168,31 @@ async def pay_with_tokens_callback(update: Update, context: ContextTypes.DEFAULT
     return ConversationHandler.END
 
 async def pay_with_money_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Оплата деньгами через Robokassa."""
     query = update.callback_query
     await query.answer()
     user_id = query.from_user.id
-    label = f"couple_{user_id}_{uuid.uuid4().hex[:8]}"
-    amount = Config.COUPLE_PRICE
+
+    # Готовим данные заказа
+    male_photo = context.user_data['couple_photos'][0]
+    female_photo = context.user_data['couple_photos'][1]
+    style_key = context.user_data['couple_style']
+
+    inv_id = f"couple_{user_id}_{uuid.uuid4().hex[:8]}"
+    amount = Decimal(str(Config.COUPLE_PRICE))
+    description = f"Парное фото в стиле {COUPLE_STYLES.get(style_key, style_key)}"
 
     data = {
-        'male_photo': context.user_data['couple_photos'][0],
-        'female_photo': context.user_data['couple_photos'][1],
-        'style': context.user_data['couple_style']
+        'male_photo': male_photo,
+        'female_photo': female_photo,
+        'style': style_key
     }
-    db = await get_db()
-    await db.create_order(user_id, label, amount, data=data)
 
-    try:
-        from yoomoney import Quickpay
-        quickpay = Quickpay(
-            receiver=Config.YOOMONEY_WALLET,
-            quickpay_form="shop",
-            targets="Парная генерация фото в PIXEL AI (Nano Banana Pro)",
-            paymentType="AC",
-            sum=amount,
-            label=label,
-            successURL=f"https://t.me/bma3_bot?start={label}"
-        )
-        payment_url = quickpay.redirected_url
-    except Exception as e:
-        logger.error(f"Ошибка создания ссылки: {e}")
-        await query.edit_message_text("❌ Не удалось создать ссылку. Попробуйте позже.")
-        return ConversationHandler.END
+    db = await get_db()
+    await db.create_order(user_id, inv_id, float(amount), data=data)
+
+    # Создаём ссылку на оплату через Robokassa
+    payment_url = get_payment_link(amount, inv_id, description)
 
     keyboard = [[InlineKeyboardButton(f"💳 Оплатить {amount}₽", url=payment_url)]]
     await query.edit_message_text(
@@ -195,7 +216,7 @@ async def cancel_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return ConversationHandler.END
 
 async def generate_couple_photo(user_id: int, bot: Bot, db, context=None):
-    """Генерация парного фото с повторными попытками при временных ошибках."""
+    """Генерация парного фото с повторными попытками (оплата жетонами)."""
     if context is None:
         logger.error("generate_couple_photo вызван без контекста")
         await bot.send_message(user_id, "❌ Внутренняя ошибка, повторите попытку.")
@@ -224,27 +245,24 @@ async def generate_couple_photo(user_id: int, bot: Bot, db, context=None):
                     prompt=prompt,
                     resolution="2K"
                 )
-                break  # успех – выходим из цикла
+                break
             except (aiohttp.ClientError, asyncio.TimeoutError) as e:
                 logger.error(f"Попытка {attempt+1} генерации не удалась: {e}")
                 if attempt == max_retries - 1:
-                    raise  # последняя попытка – пробрасываем для общей обработки
+                    raise
                 await asyncio.sleep(2)
 
         if results:
             await bot.send_message(user_id, "✅ Ваше парное фото готово!")
-            # Отправляем только первый элемент, чтобы избежать дублей
             await send_photo_or_fallback(bot, user_id, results[0])
         else:
             await bot.send_message(user_id, "❌ Не удалось сгенерировать фото. Попробуйте позже.")
-            # Возврат жетонов, если оплачивали жетонами
             if context.user_data.get('couple_paid_with_tokens'):
                 token_cost = context.user_data.get('couple_token_cost', Config.COUPLE_TOKEN_COST)
                 await db.add_tokens(user_id, token_cost)
                 await bot.send_message(user_id, f"💎 Вам возвращено {token_cost} жетонов.")
             return
 
-        # Удаление временных файлов
         for path in photo_paths:
             try:
                 if os.path.exists(path):
@@ -264,7 +282,6 @@ async def generate_couple_photo(user_id: int, bot: Bot, db, context=None):
     except Exception as e:
         logger.error(f"Ошибка генерации: {e}", exc_info=True)
         await bot.send_message(user_id, "❌ Произошла ошибка. Мы уже работаем над её исправлением.")
-        # Возврат жетонов при любой ошибке, если оплачивали жетонами
         if context and context.user_data.get('couple_paid_with_tokens'):
             token_cost = context.user_data.get('couple_token_cost', Config.COUPLE_TOKEN_COST)
             await db.add_tokens(user_id, token_cost)
@@ -306,13 +323,11 @@ async def generate_couple_photo_from_data(user_id: int, bot: Bot, db, data: dict
 
         if results:
             await bot.send_message(user_id, "✅ Ваше парное фото готово!")
-            # Отправляем только первый элемент
             await send_photo_or_fallback(bot, user_id, results[0])
         else:
             await bot.send_message(user_id, "❌ Не удалось сгенерировать фото. Попробуйте позже.")
             return
 
-        # Удаление исходных фото
         for path in [male_photo, female_photo]:
             try:
                 if os.path.exists(path):

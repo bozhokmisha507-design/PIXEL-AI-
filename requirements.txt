@@ -1,10 +1,8 @@
 python-telegram-bot[job-queue]==21.10
 aiosqlite
 aiohttp
-yoomoney
 apscheduler
 Pillow
 python-dotenv
 asyncpg==0.29.0
 openai==2.28.0.
-yookassa

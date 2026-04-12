@@ -22,7 +22,9 @@ from handlers.menu import menu_handler
 from handlers.styles import styles_handler, show_styles_cb, style_selected_cb, model_selected_cb, use_token_cb, buy_generation_cb
 from handlers.upload import upload_conversation
 from handlers.clean import clean_photos_handler
-from handlers.payment import buy_handler, buy_tokens_handler, buy_tokens_callback_handler, add_tokens_handler  # check_payments_job удалён
+from handlers.robokassa import (
+    buy_handler, buy_tokens_handler, buy_tokens_callback_handler, add_tokens_handler
+)
 from handlers.couple import couple_conv
 from handlers.video import video_conv
 from handlers.custom_prompt import custom_prompt_conv
@@ -44,7 +46,7 @@ async def post_init(application: Application) -> None:
 
 async def main_async():
     if not Config.BOT_TOKEN:
-        logger.error("❌ BOT_TOKEN не найден! Проверьте .env файл")
+        logger.error("❌ BOT_TOKEN не найден!")
         return
 
     Config.ensure_dirs()
@@ -57,10 +59,7 @@ async def main_async():
         logger.error(f"❌ Ошибка инициализации базы данных: {e}")
         return
 
-    application = Application.builder()\
-        .token(Config.BOT_TOKEN)\
-        .post_init(post_init)\
-        .build()
+    application = Application.builder().token(Config.BOT_TOKEN).post_init(post_init).build()
 
     # Регистрация обработчиков
     application.add_handler(start_handler)
@@ -105,7 +104,7 @@ async def main_async():
     ))
     application.add_handler(clean_photos_handler)
 
-    # Фоновая задача проверки платежей больше не нужна — используем вебхуки ЮKassa
+    # Фоновая задача проверки платежей больше не нужна (Robokassa использует вебхуки)
     # job_queue = application.job_queue
     # job_queue.run_repeating(check_payments_job, interval=15, first=10)
 
@@ -130,7 +129,6 @@ async def main_async():
         await application.updater.stop()
         await application.stop()
         await application.shutdown()
-
         if _db_instance:
             await _db_instance.close()
             logger.info("✅ Соединение с БД закрыто")

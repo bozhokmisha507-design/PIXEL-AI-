@@ -11,9 +11,11 @@ class Config:
     AITUNNEL_API_KEY = os.getenv("AITUNNEL_API_KEY", "")
     AITUNNEL_IMAGE_MODEL = os.getenv("AITUNNEL_IMAGE_MODEL", "gemini-3.1-flash-image-preview")
 
-    # ==================== ЮKassa ====================
-    YKASSA_SHOP_ID = int(os.getenv("YKASSA_SHOP_ID", 0))          # Ваш ShopID: 1321604
-    YKASSA_SECRET_KEY = os.getenv("YKASSA_SECRET_KEY", "")        # Секретный ключ из личного кабинета
+    # ==================== Robokassa ====================
+    ROBOKASSA_LOGIN = os.getenv("ROBOKASSA_LOGIN", "")          # Логин магазина
+    ROBOKASSA_PASSWORD_1 = os.getenv("ROBOKASSA_PASSWORD_1", "")  # Password #1
+    ROBOKASSA_PASSWORD_2 = os.getenv("ROBOKASSA_PASSWORD_2", "")  # Password #2
+    ROBOKASSA_TEST_MODE = os.getenv("ROBOKASSA_TEST_MODE", "0") == "1"  # Тестовый режим
 
     # Цены (рубли)
     PRICE_PER_GENERATION = 38          # базовая цена (Gemini)

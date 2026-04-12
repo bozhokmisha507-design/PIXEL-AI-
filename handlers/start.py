@@ -10,8 +10,8 @@ logger = logging.getLogger(__name__)
 
 WELCOME_MEDIA_FILE_ID = "BAACAgIAAxkBAAINK2m2ovEkC-IgPrVDWBdZEP3xnt2bAALjlQAC5UGxSQOUHY4Gm49-OgQ"
 
-# Возможные имена файла оферты
-OFFER_FILE_NAMES = ["Публичная_оферта.pdf", "Публичная_оферта.pdf.pdf"]
+# Возможные имена файла оферты (теперь ищем .txt)
+OFFER_FILE_NAMES = ["Публичная_оферта.txt"]
 
 async def send_welcome_message(chat_id: int, first_name: str, bot):
     welcome_text = (
@@ -47,8 +47,7 @@ async def send_welcome_message(chat_id: int, first_name: str, bot):
             await bot.send_message(chat_id, text=welcome_text, parse_mode='Markdown', reply_markup=get_main_menu_keyboard())
 
 async def send_offer_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Отправляет файл оферты (ищет по списку возможных имён)."""
-    file_content = None
+    """Отправляет файл оферты (ищет .txt файл)."""
     used_name = None
     for name in OFFER_FILE_NAMES:
         if os.path.exists(name):
@@ -56,22 +55,21 @@ async def send_offer_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
             break
     if used_name:
         with open(used_name, "rb") as f:
-            file_content = f.read()
-    if file_content:
-        await update.message.reply_document(
-            document=InputFile(used_name, filename="Публичная_оферта.pdf"),
-            caption=(
-                "📜 *Публичная оферта*\n\n"
-                "Пожалуйста, ознакомьтесь с условиями. Для продолжения нажмите кнопку ниже."
-            ),
-            parse_mode="Markdown",
-            reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("✅ Принимаю", callback_data="accept_offer")],
-                [InlineKeyboardButton("❌ Не принимаю", callback_data="decline_offer")]
-            ])
-        )
+            await update.message.reply_document(
+                document=InputFile(f, filename="Публичная_оферта.txt"),
+                caption=(
+                    "📜 *Публичная оферта*\n\n"
+                    "Пожалуйста, ознакомьтесь с условиями. Для продолжения нажмите кнопку ниже."
+                ),
+                parse_mode="Markdown",
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("✅ Принимаю", callback_data="accept_offer")],
+                    [InlineKeyboardButton("❌ Не принимаю", callback_data="decline_offer")]
+                ])
+            )
     else:
-        logger.error("Файл оферты не найден ни по одному из имён")
+        # Запасной вариант: отправить текст
+        logger.warning("Файл оферты не найден, отправляю текстовое сообщение")
         await update.message.reply_text(
             "📜 *Публичная оферта*\n\n"
             "К сожалению, файл оферты временно недоступен. Пожалуйста, примите условия для продолжения.\n\n"

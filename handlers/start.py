@@ -10,7 +10,7 @@ logger = logging.getLogger(__name__)
 
 WELCOME_MEDIA_FILE_ID = "BAACAgIAAxkBAAINK2m2ovEkC-IgPrVDWBdZEP3xnt2bAALjlQAC5UGxSQOUHY4Gm49-OgQ"
 
-# Пробуем разные имена файла оферты
+# Возможные имена файла оферты
 OFFER_FILE_NAMES = ["Публичная_оферта.pdf", "Публичная_оферта.pdf.pdf"]
 
 async def send_welcome_message(chat_id: int, first_name: str, bot):
@@ -35,15 +35,15 @@ async def send_welcome_message(chat_id: int, first_name: str, bot):
         f"• Видео = 8 жетонов\n\n"
         f"👇 Жми на кнопки ниже и пробуй!"
     )
-    # Пробуем отправить как видео
+    # Сначала пробуем как видео
     try:
         await bot.send_video(chat_id, video=WELCOME_MEDIA_FILE_ID, caption=welcome_text, parse_mode='Markdown', reply_markup=get_main_menu_keyboard())
-    except Exception as e:
+    except Exception:
         # Если не получилось – пробуем как фото
         try:
             await bot.send_photo(chat_id, photo=WELCOME_MEDIA_FILE_ID, caption=welcome_text, parse_mode='Markdown', reply_markup=get_main_menu_keyboard())
-        except Exception as e2:
-            logger.error(f"Ошибка отправки приветствия: {e2}")
+        except Exception as e:
+            logger.error(f"Ошибка отправки приветствия: {e}")
             await bot.send_message(chat_id, text=welcome_text, parse_mode='Markdown', reply_markup=get_main_menu_keyboard())
 
 async def send_offer_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -91,10 +91,11 @@ async def offer_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if query.data == "accept_offer":
         await db.set_user_agreed_to_offer(user_id, True)
-        await query.edit_message_text("✅ Спасибо! Вы приняли условия оферты.")
+        # Отправляем новое сообщение, а не редактируем файл
+        await query.message.reply_text("✅ Спасибо! Вы приняли условия оферты.")
         await show_gender_selection(update, context)
     else:
-        await query.edit_message_text(
+        await query.message.reply_text(
             "❌ Вы не приняли оферту. К сожалению, без этого мы не можем предоставить услуги."
         )
 
@@ -119,6 +120,7 @@ async def show_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await send_welcome_message(update.effective_chat.id, user.first_name, context.bot)
 
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # Обработка возвратов после оплаты
     if context.args and context.args[0].startswith("payment_"):
         label = context.args[0].replace("payment_", "")
         user_id = update.effective_user.id
@@ -126,9 +128,8 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         from handlers.robokassa import generate_paid_photo
         await generate_paid_photo(user_id, context.bot, db, context, label=label)
         return
-    # Обработка других возвратов (couple_, custom_, video_) аналогично
     elif context.args and context.args[0].startswith("couple_"):
-        # ... (оставьте как было)
+        # Обработка парных фото – нужно реализовать аналогично
         pass
     elif context.args and context.args[0].startswith("custom_"):
         pass
@@ -215,7 +216,7 @@ async def handle_main_menu_buttons(update: Update, context: ContextTypes.DEFAULT
         from handlers.video import video_start
         await video_start(update, context)
 
-# Секретная команда /getlink (оставьте как есть)
+# Секретная команда /getlink
 WAITING_MEDIA = 1
 AUTHORIZED_USERS = Config.ADMIN_IDS
 
@@ -271,6 +272,6 @@ secret_link_conv = ConversationHandler(
     per_user=True, per_chat=True
 )
 
-# Экспорт
+# Экспорт обработчиков
 start_handler = CommandHandler("start", start_command)
 help_handler = CommandHandler("help", help_command)

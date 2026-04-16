@@ -1,6 +1,6 @@
 import logging
 import os
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, InputFile
 from telegram.ext import ContextTypes, CommandHandler, CallbackQueryHandler, MessageHandler, filters, ConversationHandler
 from config import Config
 from database.db import get_db
@@ -10,8 +10,8 @@ logger = logging.getLogger(__name__)
 
 WELCOME_MEDIA_FILE_ID = "BAACAgIAAxkBAAINK2m2ovEkC-IgPrVDWBdZEP3xnt2bAALjlQAC5UGxSQOUHY4Gm49-OgQ"
 
-# Ссылка на публичную оферту (Яндекс.Диск)
-OFFER_URL = "https://disk.yandex.ru/i/epNkqb5zVe5kzQ"
+# Новая ссылка на оферту (Яндекс.Диск)
+OFFER_URL = "https://disk.yandex.ru/i/8rwfK5oR8v6e7w"
 
 async def send_welcome_message(chat_id: int, first_name: str, bot):
     welcome_text = (
@@ -39,7 +39,6 @@ async def send_welcome_message(chat_id: int, first_name: str, bot):
     try:
         await bot.send_video(chat_id, video=WELCOME_MEDIA_FILE_ID, caption=welcome_text, parse_mode='Markdown', reply_markup=get_main_menu_keyboard())
     except Exception:
-        # Если не получилось – пробуем как фото
         try:
             await bot.send_photo(chat_id, photo=WELCOME_MEDIA_FILE_ID, caption=welcome_text, parse_mode='Markdown', reply_markup=get_main_menu_keyboard())
         except Exception as e:
@@ -47,7 +46,7 @@ async def send_welcome_message(chat_id: int, first_name: str, bot):
             await bot.send_message(chat_id, text=welcome_text, parse_mode='Markdown', reply_markup=get_main_menu_keyboard())
 
 async def send_offer_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Отправляет ссылку на публичную оферту."""
+    """Отправляет ссылку на публичную оферту (Яндекс.Диск)."""
     await update.message.reply_text(
         f"📜 *Публичная оферта*\n\n"
         f"Ознакомиться с условиями можно по ссылке:\n{OFFER_URL}\n\n"
@@ -67,7 +66,6 @@ async def offer_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if query.data == "accept_offer":
         await db.set_user_agreed_to_offer(user_id, True)
-        # Отправляем новое сообщение, а не редактируем файл
         await query.message.reply_text("✅ Спасибо! Вы приняли условия оферты.")
         await show_gender_selection(update, context)
     else:
@@ -96,16 +94,16 @@ async def show_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await send_welcome_message(update.effective_chat.id, user.first_name, context.bot)
 
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    # Обработка возвратов после оплаты
+    # Обработка возвратов после оплаты (для ЮKassa / Ckassa)
     if context.args and context.args[0].startswith("payment_"):
         label = context.args[0].replace("payment_", "")
         user_id = update.effective_user.id
         db = await get_db()
-        from handlers.robokassa import generate_paid_photo
+        from handlers.payment import generate_paid_photo
         await generate_paid_photo(user_id, context.bot, db, context, label=label)
         return
     elif context.args and context.args[0].startswith("couple_"):
-        # Обработка парных фото – нужно реализовать аналогично
+        # Обработка парных фото (аналогично)
         pass
     elif context.args and context.args[0].startswith("custom_"):
         pass
@@ -157,9 +155,16 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "**💎 Жетоны**\n"
         "• 20 жетонов = 700₽ (команда /buy20).\n"
         "• Баланс можно посмотреть по кнопке «💎 Мои жетоны».\n\n"
-        "Если возникли вопросы, пишите support@example.com."
+        "**📞 Поддержка**\n"
+        "По всем вопросам пишите: mihail_bozhok@mail.ru\n\n"
+        "📜 [Публичная оферта]({OFFER_URL})"
     )
-    await update.message.reply_text(help_text, parse_mode='Markdown', reply_markup=get_main_menu_keyboard())
+    await update.message.reply_text(
+        help_text,
+        parse_mode='Markdown',
+        reply_markup=get_main_menu_keyboard(),
+        disable_web_page_preview=True
+    )
 
 async def handle_main_menu_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text
@@ -167,7 +172,7 @@ async def handle_main_menu_buttons(update: Update, context: ContextTypes.DEFAULT
         from handlers.upload import upload_command
         await upload_command(update, context)
     elif text == "💳 Купить генерацию":
-        from handlers.robokassa import buy_command
+        from handlers.payment import buy_command
         await buy_command(update, context)
     elif text == "🖼️ Стили":
         from handlers.styles import styles_command
@@ -183,7 +188,7 @@ async def handle_main_menu_buttons(update: Update, context: ContextTypes.DEFAULT
         from handlers.couple import couple_start
         await couple_start(update, context)
     elif text == "💎 Мои жетоны":
-        from handlers.robokassa import my_tokens_command
+        from handlers.payment import my_tokens_command
         await my_tokens_command(update, context)
     elif text == "✍️ Свой промпт":
         from handlers.custom_prompt import custom_prompt_start
@@ -192,7 +197,7 @@ async def handle_main_menu_buttons(update: Update, context: ContextTypes.DEFAULT
         from handlers.video import video_start
         await video_start(update, context)
 
-# Секретная команда /getlink
+# Секретная команда /getlink (оставлена для админов)
 WAITING_MEDIA = 1
 AUTHORIZED_USERS = Config.ADMIN_IDS
 

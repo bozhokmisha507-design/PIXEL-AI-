@@ -157,7 +157,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "• Баланс можно посмотреть по кнопке «💎 Мои жетоны».\n\n"
         "**📞 Поддержка**\n"
         "По всем вопросам пишите: super-mike-4@yandex.ru\n\n"
-        f"📜 [Публичная оферта]({https://disk.yandex.ru/d/8rwfK5oR8v6e7w?dl=1})"
+        f"📜 [Публичная оферта]({OFFER_URL})"
     )
     await update.message.reply_text(
         help_text,

@@ -156,8 +156,8 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "• 20 жетонов = 700₽ (команда /buy20).\n"
         "• Баланс можно посмотреть по кнопке «💎 Мои жетоны».\n\n"
         "**📞 Поддержка**\n"
-        "По всем вопросам пишите: mihail_bozhok@mail.ru\n\n"
-        "📜 [Публичная оферта]({OFFER_URL})"
+        "По всем вопросам пишите: super-mike-4@yandex.ru\n\n"
+        f"📜 [Публичная оферта]({https://disk.yandex.ru/d/8rwfK5oR8v6e7w?dl=1})"
     )
     await update.message.reply_text(
         help_text,
@@ -197,7 +197,7 @@ async def handle_main_menu_buttons(update: Update, context: ContextTypes.DEFAULT
         from handlers.video import video_start
         await video_start(update, context)
 
-# Секретная команда /getlink (оставлена для админов)
+# Секретная команда /getlink (для админов)
 WAITING_MEDIA = 1
 AUTHORIZED_USERS = Config.ADMIN_IDS
 

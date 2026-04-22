@@ -1,12 +1,16 @@
 import uuid
 import logging
+from decimal import Decimal
+
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes, ConversationHandler, CommandHandler, MessageHandler, filters, CallbackQueryHandler
+
 from config import Config
 from handlers.menu import get_main_menu_keyboard, MAIN_MENU_BUTTONS
 from database.db import get_db
 from services.aitunnel_service import AITunnelService
 from utils.helpers import send_photo_or_fallback
+from yookassa import Payment   # <-- добавлен импорт ЮKassa
 
 logger = logging.getLogger(__name__)
 
@@ -116,8 +120,9 @@ async def pay_with_tokens_callback(update: Update, context: ContextTypes.DEFAULT
     await generate_custom_photo(user_id, context.bot, db, context)
     return ConversationHandler.END
 
+# ========== ЗАМЕНЁННАЯ ФУНКЦИЯ (ЮKassa) ==========
 async def pay_with_money_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Оплата деньгами – создаём заказ."""
+    """Оплата деньгами через ЮKassa."""
     query = update.callback_query
     await query.answer()
 
@@ -134,19 +139,19 @@ async def pay_with_money_callback(update: Update, context: ContextTypes.DEFAULT_
     await db.create_order(user_id, label, amount, data=data)
 
     try:
-        from yoomoney import Quickpay
-        quickpay = Quickpay(
-            receiver=Config.YOOMONEY_WALLET,
-            quickpay_form="shop",
-            targets="Кастомная генерация фото в PIXEL AI (GPT)",
-            paymentType="AC",
-            sum=amount,
-            label=label,
-            successURL=f"https://t.me/bma3_bot?start={label}"
-        )
-        payment_url = quickpay.redirected_url
+        payment = Payment.create({
+            "amount": {"value": str(amount), "currency": "RUB"},
+            "capture": True,
+            "confirmation": {
+                "type": "redirect",
+                "return_url": f"https://t.me/bma3_bot?start={label}"
+            },
+            "description": "Кастомная генерация фото в PIXEL AI (GPT)",
+            "metadata": {"label": label, "user_id": user_id}
+        }, uuid.uuid4())
+        payment_url = payment.confirmation.confirmation_url
     except Exception as e:
-        logger.error(f"Ошибка создания ссылки: {e}")
+        logger.error(f"Ошибка создания платежа для кастомной генерации: {e}")
         await query.edit_message_text("❌ Не удалось создать ссылку. Попробуйте позже.")
         context.user_data.pop('in_custom_prompt', None)
         return ConversationHandler.END
@@ -234,7 +239,7 @@ async def generate_custom_photo(user_id: int, bot, db, context):
             await bot.send_message(user_id, f"💎 Вам возвращено {token_cost} жетонов.")
         context.user_data.pop('in_custom_prompt', None)
 
-# ---------- Функция для оплаты деньгами (вызывается из payment.py) ----------
+# ---------- Функция для оплаты деньгами (вызывается из вебхука) ----------
 async def generate_custom_photo_from_data(user_id: int, bot, db, data: dict):
     """Генерация по кастомному промпту после оплаты деньгами (вызывается из payment.py)."""
     try:

@@ -22,9 +22,10 @@ from handlers.menu import menu_handler
 from handlers.styles import styles_handler, show_styles_cb, style_selected_cb, model_selected_cb, use_token_cb, buy_generation_cb
 from handlers.upload import upload_conversation
 from handlers.clean import clean_photos_handler
-from handlers.robokassa import (
+# Импорт из нового модуля payment (Ckassa) вместо robokassa
+from handlers.payment import (
     buy_handler, buy_tokens_handler, buy_tokens_callback_handler, add_tokens_handler,
-    my_tokens_handler   # <-- добавлен
+    my_tokens_handler
 )
 from handlers.couple import couple_conv
 from handlers.video import video_conv
@@ -83,11 +84,11 @@ async def main_async():
     application.add_handler(buy_tokens_callback_handler)
     application.add_handler(CallbackQueryHandler(offer_callback, pattern="^(accept_offer|decline_offer)$"))
 
-    # Команды
+    # Команды (теперь из модуля payment)
     application.add_handler(buy_handler)
     application.add_handler(buy_tokens_handler)
     application.add_handler(add_tokens_handler)
-    application.add_handler(my_tokens_handler)   # <-- добавлен
+    application.add_handler(my_tokens_handler)
 
     # Обработчик кнопок главного меню
     application.add_handler(MessageHandler(
@@ -107,7 +108,7 @@ async def main_async():
     ))
     application.add_handler(clean_photos_handler)
 
-    # Фоновая задача проверки платежей больше не нужна (Robokassa использует вебхуки)
+    # Фоновая проверка платежей не требуется (Ckassa использует вебхуки)
     # job_queue = application.job_queue
     # job_queue.run_repeating(check_payments_job, interval=15, first=10)
 

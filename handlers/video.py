@@ -9,7 +9,9 @@ from handlers.menu import get_main_menu_keyboard
 from database.db import get_db
 from services.aitunnel_service import AITunnelService
 from utils.helpers import send_video_or_fallback
-from handlers.robokassa import get_payment_link, generate_signature  # импортируем из robokassa
+
+# Импорт ЮKassa (установите через pip install yookassa)
+from yookassa import Payment
 
 logger = logging.getLogger(__name__)
 
@@ -165,14 +167,13 @@ async def pay_with_tokens_callback(update: Update, context: ContextTypes.DEFAULT
     await generate_video(user_id, context.bot, db, context)
     return ConversationHandler.END
 
+# ========== ЗАМЕНЁННАЯ ФУНКЦИЯ (ЮKassa) ==========
 async def pay_with_money_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Оплата деньгами через Robokassa."""
     query = update.callback_query
     await query.answer()
     user_id = query.from_user.id
     label = f"video_{user_id}_{uuid.uuid4().hex[:8]}"
-    amount = Decimal(str(VIDEO_PRICE))
-    description = "Генерация видео Sora 2 Pro"
+    amount = VIDEO_PRICE
 
     data = {
         'prompt': context.user_data['video_prompt'],
@@ -181,11 +182,24 @@ async def pay_with_money_callback(update: Update, context: ContextTypes.DEFAULT_
     }
 
     db = await get_db()
-    await db.create_order(user_id, label, float(amount), data=data)
+    await db.create_order(user_id, label, amount, data=data)
 
-    # Используем функцию из robokassa.py
-    from handlers.robokassa import get_payment_link
-    payment_url = get_payment_link(amount, label, description)
+    try:
+        payment = Payment.create({
+            "amount": {"value": str(amount), "currency": "RUB"},
+            "capture": True,
+            "confirmation": {
+                "type": "redirect",
+                "return_url": f"https://t.me/bma3_bot?start={label}"
+            },
+            "description": "Генерация видео в PIXEL AI",
+            "metadata": {"label": label, "user_id": user_id}
+        }, uuid.uuid4())
+        payment_url = payment.confirmation.confirmation_url
+    except Exception as e:
+        logger.error(f"Ошибка создания платежа для видео: {e}")
+        await query.edit_message_text("❌ Не удалось создать ссылку. Попробуйте позже.")
+        return ConversationHandler.END
 
     keyboard = [[InlineKeyboardButton(f"💳 Оплатить {amount}₽", url=payment_url)]]
     await query.edit_message_text(

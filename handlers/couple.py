@@ -5,8 +5,6 @@ import json
 import aiohttp
 import asyncio
 from decimal import Decimal
-from urllib.parse import urlencode
-import hashlib
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, Bot
 from telegram.ext import ContextTypes, ConversationHandler, CommandHandler, MessageHandler, filters, CallbackQueryHandler
@@ -16,6 +14,7 @@ from handlers.menu import get_main_menu_keyboard
 from database.db import get_db
 from services.aitunnel_service import AITunnelService
 from utils.helpers import send_photo_or_fallback
+from yookassa import Payment   # <-- добавлен импорт ЮKassa
 
 logger = logging.getLogger(__name__)
 
@@ -39,27 +38,6 @@ COUPLE_PROMPTS = {
     "couple_city": "A romantic close-up portrait of a couple in love standing on a rooftop at night, city lights background, cinematic, photorealistic, 8k, highly detailed faces, exact facial features as in reference images, faces clearly visible, sharp focus on faces, medium shot, professional night photography style",
     "couple_forest": "A romantic close-up portrait of a couple walking in a sunlit forest, holding hands, warm lighting, photorealistic, 8k, highly detailed faces, exact facial features as in reference images, faces clearly visible, sharp focus on faces, medium shot, professional nature photography style, sun rays filtering through trees",
 }
-
-# ---------- Robokassa helpers ----------
-MERCHANT_LOGIN = Config.ROBOKASSA_LOGIN
-PASSWORD_1 = Config.ROBOKASSA_PASSWORD_1
-IS_TEST = Config.ROBOKASSA_TEST_MODE
-ROBOKASSA_URL = "https://merchant.roboxchange.com/Index.aspx"
-
-def generate_signature(out_sum: str, inv_id: str, password: str) -> str:
-    signature_str = f"{MERCHANT_LOGIN}:{out_sum}:{inv_id}:{password}"
-    return hashlib.md5(signature_str.encode()).hexdigest()
-
-def get_payment_link(amount: Decimal, inv_id: str, description: str) -> str:
-    params = {
-        "MrchLogin": MERCHANT_LOGIN,
-        "OutSum": str(amount),
-        "InvId": inv_id,
-        "Desc": description,
-        "SignatureValue": generate_signature(str(amount), inv_id, PASSWORD_1),
-        "Culture": "ru",
-    }
-    return f"{ROBOKASSA_URL}?{urlencode(params)}"
 
 # ---------- Основные функции ----------
 async def couple_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -167,20 +145,18 @@ async def pay_with_tokens_callback(update: Update, context: ContextTypes.DEFAULT
     await generate_couple_photo(user_id, context.bot, db, context)
     return ConversationHandler.END
 
+# ========== ЗАМЕНЁННАЯ ФУНКЦИЯ (ЮKassa) ==========
 async def pay_with_money_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Оплата деньгами через Robokassa."""
     query = update.callback_query
     await query.answer()
     user_id = query.from_user.id
 
-    # Готовим данные заказа
     male_photo = context.user_data['couple_photos'][0]
     female_photo = context.user_data['couple_photos'][1]
     style_key = context.user_data['couple_style']
 
-    inv_id = f"couple_{user_id}_{uuid.uuid4().hex[:8]}"
-    amount = Decimal(str(Config.COUPLE_PRICE))
-    description = f"Парное фото в стиле {COUPLE_STYLES.get(style_key, style_key)}"
+    label = f"couple_{user_id}_{uuid.uuid4().hex[:8]}"
+    amount = Config.COUPLE_PRICE
 
     data = {
         'male_photo': male_photo,
@@ -189,10 +165,24 @@ async def pay_with_money_callback(update: Update, context: ContextTypes.DEFAULT_
     }
 
     db = await get_db()
-    await db.create_order(user_id, inv_id, float(amount), data=data)
+    await db.create_order(user_id, label, amount, data=data)
 
-    # Создаём ссылку на оплату через Robokassa
-    payment_url = get_payment_link(amount, inv_id, description)
+    try:
+        payment = Payment.create({
+            "amount": {"value": str(amount), "currency": "RUB"},
+            "capture": True,
+            "confirmation": {
+                "type": "redirect",
+                "return_url": f"https://t.me/bma3_bot?start={label}"
+            },
+            "description": "Парная генерация фото в PIXEL AI",
+            "metadata": {"label": label, "user_id": user_id}
+        }, uuid.uuid4())
+        payment_url = payment.confirmation.confirmation_url
+    except Exception as e:
+        logger.error(f"Ошибка создания платежа для парного фото: {e}")
+        await query.edit_message_text("❌ Не удалось создать ссылку. Попробуйте позже.")
+        return ConversationHandler.END
 
     keyboard = [[InlineKeyboardButton(f"💳 Оплатить {amount}₽", url=payment_url)]]
     await query.edit_message_text(

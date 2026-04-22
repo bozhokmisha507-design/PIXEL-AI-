@@ -11,7 +11,7 @@ logger = logging.getLogger(__name__)
 WELCOME_MEDIA_FILE_ID = "BAACAgIAAxkBAAINK2m2ovEkC-IgPrVDWBdZEP3xnt2bAALjlQAC5UGxSQOUHY4Gm49-OgQ"
 
 # Новая ссылка на оферту (Яндекс.Диск)
-OFFER_URL = "https://disk.yandex.ru/i/8rwfK5oR8v6e7w"
+OFFER_URL = "https://disk.yandex.ru/i/nMXgEPicY1r_GA"
 
 async def send_welcome_message(chat_id: int, first_name: str, bot):
     welcome_text = (

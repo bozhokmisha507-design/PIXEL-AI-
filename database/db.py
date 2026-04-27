@@ -20,7 +20,7 @@ class Database:
             logger.info("✅ Подключение к PostgreSQL установлено")
             
             async with self.pool.acquire() as conn:
-                # Таблица пользователей (без agreed_to_offer, добавим позже)
+                # Таблица пользователей
                 await conn.execute("""
                     CREATE TABLE IF NOT EXISTS users (
                         user_id BIGINT PRIMARY KEY,
@@ -78,7 +78,8 @@ class Database:
                         status TEXT DEFAULT 'pending',
                         data TEXT,
                         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                        processed BOOLEAN DEFAULT FALSE
+                        processed BOOLEAN DEFAULT FALSE,
+                        payment_id TEXT
                     )
                 """)
 
@@ -94,7 +95,6 @@ class Database:
             raise
 
     async def close(self):
-        """Закрытие пула соединений"""
         if self.pool:
             await self.pool.close()
             logger.info("✅ Пул соединений закрыт")
@@ -124,7 +124,6 @@ class Database:
             )
 
     async def use_tokens(self, user_id: int, cost: int) -> bool:
-        """Атомарно списывает указанное количество жетонов, если их достаточно."""
         async with self.pool.acquire() as conn:
             result = await conn.execute(
                 "UPDATE users SET tokens = tokens - $1 WHERE user_id = $2 AND tokens >= $3",
@@ -197,18 +196,14 @@ class Database:
         logger.info(f"✅ Стиль сохранён")
 
     async def get_user_selected_style(self, user_id: int) -> Optional[str]:
-        logger.info(f"🔍 Получаем стиль для user {user_id}")
         async with self.pool.acquire() as conn:
-            style = await conn.fetchval(
+            return await conn.fetchval(
                 "SELECT selected_style FROM users WHERE user_id = $1",
                 user_id
             )
-            logger.info(f"📦 Найден стиль: {style}")
-            return style
 
     # ===== Заказы =====
     async def create_order(self, user_id: int, label: str, amount: float, data: dict = None) -> None:
-        """Создаёт запись о заказе. Если передан data, сохраняет его как JSON в поле data."""
         async with self.pool.acquire() as conn:
             if data is not None:
                 data_json = json.dumps(data, ensure_ascii=False)
@@ -221,6 +216,20 @@ class Database:
                     "INSERT INTO orders (user_id, label, amount) VALUES ($1, $2, $3)",
                     user_id, label, amount
                 )
+
+    async def update_order_payment_id(self, label: str, payment_id: str):
+        async with self.pool.acquire() as conn:
+            await conn.execute(
+                "UPDATE orders SET payment_id = $1 WHERE label = $2",
+                payment_id, label
+            )
+
+    async def get_payment_id_by_label(self, label: str) -> Optional[str]:
+        async with self.pool.acquire() as conn:
+            return await conn.fetchval(
+                "SELECT payment_id FROM orders WHERE label = $1",
+                label
+            )
 
     async def get_unprocessed_orders(self) -> List[Dict[str, Any]]:
         async with self.pool.acquire() as conn:
@@ -253,7 +262,6 @@ class Database:
             return bool(result)
 
     async def get_order_data(self, label: str) -> Optional[dict]:
-        """Возвращает данные заказа (поле data) в виде словаря, если они есть."""
         async with self.pool.acquire() as conn:
             data = await conn.fetchval(
                 "SELECT data FROM orders WHERE label = $1",

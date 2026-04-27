@@ -1,17 +1,21 @@
 import logging
 import os
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, InputFile
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes, CommandHandler, CallbackQueryHandler, MessageHandler, filters, ConversationHandler
 from config import Config
 from database.db import get_db
 from handlers.menu import get_main_menu_keyboard
+from handlers.payment import generate_paid_photo
+from yookassa import Configuration, Payment as YKPayment
 
 logger = logging.getLogger(__name__)
 
 WELCOME_MEDIA_FILE_ID = "BAACAgIAAxkBAAINK2m2ovEkC-IgPrVDWBdZEP3xnt2bAALjlQAC5UGxSQOUHY4Gm49-OgQ"
-
-# Новая ссылка на оферту (Яндекс.Диск)
 OFFER_URL = "https://disk.yandex.ru/i/nMXgEPicY1r_GA"
+
+# Настройка ЮKassa для проверки платежей
+Configuration.account_id = Config.YKASSA_SHOP_ID
+Configuration.secret_key = Config.YKASSA_SECRET_KEY
 
 async def send_welcome_message(chat_id: int, first_name: str, bot):
     welcome_text = (
@@ -35,7 +39,6 @@ async def send_welcome_message(chat_id: int, first_name: str, bot):
         f"• Видео = 8 жетонов\n\n"
         f"👇 Жми на кнопки ниже и пробуй!"
     )
-    # Сначала пробуем как видео
     try:
         await bot.send_video(chat_id, video=WELCOME_MEDIA_FILE_ID, caption=welcome_text, parse_mode='Markdown', reply_markup=get_main_menu_keyboard())
     except Exception:
@@ -46,12 +49,11 @@ async def send_welcome_message(chat_id: int, first_name: str, bot):
             await bot.send_message(chat_id, text=welcome_text, parse_mode='Markdown', reply_markup=get_main_menu_keyboard())
 
 async def send_offer_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Отправляет ссылку на публичную оферту (Яндекс.Диск). Без Markdown, чтобы избежать ошибок парсинга."""
     await update.message.reply_text(
         f"📜 Публичная оферта\n\n"
         f"Ознакомиться с условиями можно по ссылке:\n{OFFER_URL}\n\n"
         f"Нажимая «✅ Принимаю», вы соглашаетесь с условиями оферты.",
-        parse_mode=None,  # Отключаем парсинг, чтобы URL не вызывал ошибок
+        parse_mode=None,
         reply_markup=InlineKeyboardMarkup([
             [InlineKeyboardButton("✅ Принимаю", callback_data="accept_offer")],
             [InlineKeyboardButton("❌ Не принимаю", callback_data="decline_offer")]
@@ -94,19 +96,47 @@ async def show_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await send_welcome_message(update.effective_chat.id, user.first_name, context.bot)
 
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    # ========== ИСПРАВЛЕННЫЕ БЛОКИ: больше не запускают генерацию ==========
+    # Обработка deep-link аргументов
     if context.args:
         arg = context.args[0]
+        
+        # ---------- ОБРАБОТКА ВОЗВРАТА ПОСЛЕ ОПЛАТЫ (с проверкой статуса) ----------
         if arg.startswith("payment_"):
-            await update.message.reply_text(
-                "⏳ Ваш платёж обрабатывается. Если оплата прошла успешно, фото/видео придёт автоматически в течение минуты.\n"
-                "Если результат не появился, пожалуйста, свяжитесь с поддержкой.",
-                reply_markup=get_main_menu_keyboard()
-            )
+            label = arg.replace("payment_", "")
+            user_id = update.effective_user.id
+            db = await get_db()
+            payment_id = await db.get_payment_id_by_label(label)
+            if not payment_id:
+                await update.message.reply_text(
+                    "❌ Информация о платеже не найдена. Попробуйте создать новый заказ.",
+                    reply_markup=get_main_menu_keyboard()
+                )
+                return
+
+            try:
+                payment = YKPayment.find_one(payment_id)
+                logger.info(f"Статус платежа {label}: {payment.status}")
+                if payment.status == 'succeeded':
+                    await generate_paid_photo(user_id, context.bot, db, context, label=label)
+                else:
+                    await update.message.reply_text(
+                        f"⏳ Ваш платёж в статусе «{payment.status}». Если вы оплатили, подождите ещё минуту и нажмите /start.\n"
+                        "Если прошло больше 5 минут, напишите в поддержку.",
+                        reply_markup=get_main_menu_keyboard()
+                    )
+            except Exception as e:
+                logger.error(f"Ошибка проверки платежа {label}: {e}")
+                await update.message.reply_text(
+                    "❌ Не удалось проверить статус оплаты. Попробуйте позже или свяжитесь с поддержкой.",
+                    reply_markup=get_main_menu_keyboard()
+                )
             return
+
+        # ---------- ОСТАЛЬНЫЕ ТИПЫ ВОЗВРАТА (токены, пары, видео) – информационные ----------
         elif arg.startswith("tokens_"):
+            # Покупка жетонов – просто информационное сообщение
             await update.message.reply_text(
-                "⏳ Платёж за жетоны обрабатывается. После подтверждения жетоны поступят автоматически.",
+                "⏳ Платёж за жетоны обрабатывается. Если оплата прошла успешно, жетоны поступят автоматически в течение минуты.",
                 reply_markup=get_main_menu_keyboard()
             )
             return
@@ -129,6 +159,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return
 
+    # Обычный /start (без аргументов или неизвестный аргумент)
     user = update.effective_user
     user_id = user.id
     db = await get_db()

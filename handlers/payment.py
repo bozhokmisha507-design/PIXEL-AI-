@@ -20,7 +20,6 @@ Configuration.secret_key = Config.YKASSA_SECRET_KEY
 async def buy_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
 
-    # Получаем выбранные модель и стиль из user_data
     selected_model = context.user_data.get('selected_model', 'gemini')
     style_key = context.user_data.get('selected_style')
     if not style_key:
@@ -30,7 +29,6 @@ async def buy_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
-    # Цена в зависимости от модели
     if selected_model == 'gpt':
         amount = Config.PRICE_PREMIUM
     elif selected_model == 'nanobanana':
@@ -39,8 +37,6 @@ async def buy_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         amount = Config.PRICE_PER_GENERATION
 
     label = f"single_{user_id}_{uuid.uuid4().hex[:8]}"
-
-    # Сохраняем в заказ все данные, нужные для генерации
     order_data = {
         'selected_model': selected_model,
         'style_key': style_key,
@@ -61,6 +57,8 @@ async def buy_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "description": f"Оплата генерации фото в PIXEL AI",
             "metadata": {"label": label, "user_id": user_id}
         }, uuid.uuid4())
+        payment_id = payment.id
+        await db.update_order_payment_id(label, payment_id)
         payment_url = payment.confirmation.confirmation_url
     except Exception as e:
         logger.error(f"Ошибка создания платежа для user {user_id}: {e}", exc_info=True)
@@ -96,6 +94,8 @@ async def buy_tokens_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
             "description": f"Пакет 20 жетонов в PIXEL AI",
             "metadata": {"label": label, "user_id": user_id}
         }, uuid.uuid4())
+        payment_id = payment.id
+        await db.update_order_payment_id(label, payment_id)
         payment_url = payment.confirmation.confirmation_url
     except Exception as e:
         logger.error(f"Ошибка создания платежа для пакета: {e}")
@@ -129,6 +129,8 @@ async def send_tokens_purchase_message(user_id: int, context: ContextTypes.DEFAU
             "description": f"Пакет 20 жетонов в PIXEL AI",
             "metadata": {"label": label, "user_id": user_id}
         }, uuid.uuid4())
+        payment_id = payment.id
+        await db.update_order_payment_id(label, payment_id)
         payment_url = payment.confirmation.confirmation_url
     except Exception as e:
         logger.error(f"Ошибка создания платежа для пакета: {e}")
@@ -190,22 +192,15 @@ async def my_tokens_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # ---------- Генерация фото после оплаты (для одиночных фото) ----------
 async def generate_paid_photo(user_id: int, bot: Bot, db, context=None, label=None, order_data=None):
-    """
-    Универсальная функция генерации для одиночных фото.
-    order_data может содержать selected_model, style_key.
-    """
     try:
-        # Если передан label, проверяем обработку
         if label:
             if await db.is_order_processed(label):
                 logger.info(f"Заказ {label} уже обработан, пропускаем")
                 return
-            # Получаем данные заказа, если не переданы отдельно
             if order_data is None:
                 order_data = await db.get_order_data(label)
-            logger.info(f"Генерация для заказа {label}, user {user_id}, данные: {order_data}")
+            logger.info(f"Генерация для заказа {label}, user {user_id}")
 
-        # Определяем модель и стиль
         selected_model = 'gemini'
         style_key = None
         if order_data:
@@ -216,21 +211,19 @@ async def generate_paid_photo(user_id: int, bot: Bot, db, context=None, label=No
             style_key = context.user_data.get('selected_style')
 
         if not style_key:
-            # Пытаемся взять последний выбранный стиль из БД
             style_key = await db.get_user_selected_style(user_id)
             if not style_key:
                 await bot.send_message(
-                    chat_id=user_id,
+                    user_id,
                     text="❌ Стиль не был выбран. Пожалуйста, сначала выберите стиль через меню «🖼️ Стили»."
                 )
-                # Можно показать меню стилей
                 from handlers.styles import show_styles_menu
                 await show_styles_menu(user_id, context)
                 return
 
         style = Config.STYLES.get(style_key)
         if not style:
-            await bot.send_message(user_id, "❌ Выбранный стиль не найден. Попробуйте снова.")
+            await bot.send_message(user_id, "❌ Выбранный стиль не найден.")
             return
 
         photo_paths = await db.get_user_photos(user_id, "input")
@@ -265,7 +258,6 @@ async def generate_paid_photo(user_id: int, bot: Bot, db, context=None, label=No
             if label:
                 await db.mark_order_processed(label)
 
-            # Очистка временных данных, если есть context
             if context and context.user_data:
                 context.user_data.pop('selected_style', None)
                 context.user_data.pop('selected_model', None)
@@ -280,8 +272,7 @@ async def generate_paid_photo(user_id: int, bot: Bot, db, context=None, label=No
             logger.error(f"Генерация не удалась для user {user_id}, заказ {label}")
             await bot.send_message(
                 user_id,
-                text="❌ Не удалось сгенерировать фото. Попробуйте позже. "
-                     "Если деньги списаны, они вернутся автоматически."
+                text="❌ Не удалось сгенерировать фото. Попробуйте позже. Если деньги списаны, они вернутся автоматически."
             )
     except Exception as e:
         logger.error(f"Ошибка в generate_paid_photo: {e}", exc_info=True)
@@ -309,12 +300,10 @@ async def process_yookassa_webhook(data: dict, bot: Bot, db):
         logger.warning("Нет label в метаданных")
         return
 
-    # Проверяем, не обработан ли уже заказ
     if await db.is_order_processed(label):
         logger.info(f"Заказ {label} уже обработан, пропускаем")
         return
 
-    # Получаем user_id из метаданных или из label
     user_id = metadata.get('user_id')
     if not user_id:
         parts = label.split('_')
@@ -324,7 +313,6 @@ async def process_yookassa_webhook(data: dict, bot: Bot, db):
         logger.error(f"Не удалось определить user_id для {label}")
         return
 
-    # Обработка в зависимости от префикса
     if label.startswith("tokens20_"):
         await db.add_tokens(user_id, 20)
         await bot.send_message(user_id, "✅ Вам начислено 20 жетонов! Используйте их при генерации.")
@@ -338,7 +326,6 @@ async def process_yookassa_webhook(data: dict, bot: Bot, db):
             await db.mark_order_processed(label)
         else:
             logger.error(f"Нет данных для заказа {label}")
-            await bot.send_message(user_id, "✅ Оплата получена, но произошла ошибка. Начните заново.")
 
     elif label.startswith("custom_"):
         order_data = await db.get_order_data(label)
@@ -348,7 +335,6 @@ async def process_yookassa_webhook(data: dict, bot: Bot, db):
             await db.mark_order_processed(label)
         else:
             logger.error(f"Нет данных для заказа {label}")
-            await bot.send_message(user_id, "✅ Оплата получена, но произошла ошибка. Начните заново.")
 
     elif label.startswith("video_"):
         order_data = await db.get_order_data(label)
@@ -358,9 +344,8 @@ async def process_yookassa_webhook(data: dict, bot: Bot, db):
             await db.mark_order_processed(label)
         else:
             logger.error(f"Нет данных для заказа {label}")
-            await bot.send_message(user_id, "✅ Оплата получена, но произошла ошибка. Начните заново.")
 
-    else:  # Одиночные фото (single_...)
+    else:  # одиночные фото
         order_data = await db.get_order_data(label)
         await generate_paid_photo(user_id, bot, db, label=label, order_data=order_data)
 

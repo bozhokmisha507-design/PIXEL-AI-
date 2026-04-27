@@ -94,21 +94,41 @@ async def show_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await send_welcome_message(update.effective_chat.id, user.first_name, context.bot)
 
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    # Обработка возвратов после оплаты (для ЮKassa / Ckassa)
-    if context.args and context.args[0].startswith("payment_"):
-        label = context.args[0].replace("payment_", "")
-        user_id = update.effective_user.id
-        db = await get_db()
-        from handlers.payment import generate_paid_photo
-        await generate_paid_photo(user_id, context.bot, db, context, label=label)
-        return
-    elif context.args and context.args[0].startswith("couple_"):
-        # Обработка парных фото (аналогично)
-        pass
-    elif context.args and context.args[0].startswith("custom_"):
-        pass
-    elif context.args and context.args[0].startswith("video_"):
-        pass
+    # ========== ИСПРАВЛЕННЫЕ БЛОКИ: больше не запускают генерацию ==========
+    if context.args:
+        arg = context.args[0]
+        if arg.startswith("payment_"):
+            # Платеж за генерацию
+            await update.message.reply_text(
+                "⏳ Ваш платёж обрабатывается. Если оплата прошла успешно, фото/видео придёт автоматически в течение минуты.\n"
+                "Если результат не появился, пожалуйста, свяжитесь с поддержкой.",
+                reply_markup=get_main_menu_keyboard()
+            )
+            return
+        elif arg.startswith("tokens_"):
+            await update.message.reply_text(
+                "⏳ Платёж за жетоны обрабатывается. После подтверждения жетоны поступят автоматически.",
+                reply_markup=get_main_menu_keyboard()
+            )
+            return
+        elif arg.startswith("couple_"):
+            await update.message.reply_text(
+                "⏳ Платёж за парное фото обрабатывается. Готовое изображение придёт автоматически после успешной оплаты.",
+                reply_markup=get_main_menu_keyboard()
+            )
+            return
+        elif arg.startswith("custom_"):
+            await update.message.reply_text(
+                "⏳ Платёж за кастомную генерацию обрабатывается. Фото придёт автоматически после подтверждения оплаты.",
+                reply_markup=get_main_menu_keyboard()
+            )
+            return
+        elif arg.startswith("video_"):
+            await update.message.reply_text(
+                "⏳ Платёж за видео обрабатывается. Видео будет отправлено автоматически после успешной оплаты.",
+                reply_markup=get_main_menu_keyboard()
+            )
+            return
 
     user = update.effective_user
     user_id = user.id

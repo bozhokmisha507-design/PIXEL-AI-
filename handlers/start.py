@@ -46,12 +46,12 @@ async def send_welcome_message(chat_id: int, first_name: str, bot):
             await bot.send_message(chat_id, text=welcome_text, parse_mode='Markdown', reply_markup=get_main_menu_keyboard())
 
 async def send_offer_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Отправляет ссылку на публичную оферту (Яндекс.Диск)."""
+    """Отправляет ссылку на публичную оферту (Яндекс.Диск). Без Markdown, чтобы избежать ошибок парсинга."""
     await update.message.reply_text(
-        f"📜 *Публичная оферта*\n\n"
+        f"📜 Публичная оферта\n\n"
         f"Ознакомиться с условиями можно по ссылке:\n{OFFER_URL}\n\n"
         f"Нажимая «✅ Принимаю», вы соглашаетесь с условиями оферты.",
-        parse_mode="Markdown",
+        parse_mode=None,  # Отключаем парсинг, чтобы URL не вызывал ошибок
         reply_markup=InlineKeyboardMarkup([
             [InlineKeyboardButton("✅ Принимаю", callback_data="accept_offer")],
             [InlineKeyboardButton("❌ Не принимаю", callback_data="decline_offer")]
@@ -98,7 +98,6 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if context.args:
         arg = context.args[0]
         if arg.startswith("payment_"):
-            # Платеж за генерацию
             await update.message.reply_text(
                 "⏳ Ваш платёж обрабатывается. Если оплата прошла успешно, фото/видео придёт автоматически в течение минуты.\n"
                 "Если результат не появился, пожалуйста, свяжитесь с поддержкой.",

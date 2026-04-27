@@ -16,19 +16,39 @@ logger = logging.getLogger(__name__)
 Configuration.account_id = Config.YKASSA_SHOP_ID
 Configuration.secret_key = Config.YKASSA_SECRET_KEY
 
-# ---------- Команда /buy (обычная генерация) ----------
+# ---------- Команда /buy (одиночная генерация) ----------
 async def buy_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
 
-    selected_model = 'gemini'
-    if context.user_data is not None:
-        selected_model = context.user_data.get('selected_model', 'gemini')
-    amount = Config.PRICE_PREMIUM if selected_model == 'gpt' else Config.PRICE_PER_GENERATION
+    # Получаем выбранные модель и стиль из user_data
+    selected_model = context.user_data.get('selected_model', 'gemini')
+    style_key = context.user_data.get('selected_style')
+    if not style_key:
+        await update.message.reply_text(
+            "❌ Сначала выберите стиль через меню «🖼️ Стили».",
+            reply_markup=get_main_menu_keyboard()
+        )
+        return
 
-    label = f"order_{user_id}_{uuid.uuid4().hex[:8]}"
+    # Цена в зависимости от модели
+    if selected_model == 'gpt':
+        amount = Config.PRICE_PREMIUM
+    elif selected_model == 'nanobanana':
+        amount = Config.PRICE_NANOBANANA
+    else:
+        amount = Config.PRICE_PER_GENERATION
+
+    label = f"single_{user_id}_{uuid.uuid4().hex[:8]}"
+
+    # Сохраняем в заказ все данные, нужные для генерации
+    order_data = {
+        'selected_model': selected_model,
+        'style_key': style_key,
+        'user_id': user_id
+    }
 
     db = await get_db()
-    await db.create_order(user_id, label, amount)
+    await db.create_order(user_id, label, amount, data=order_data)
 
     try:
         payment = Payment.create({
@@ -63,7 +83,7 @@ async def buy_tokens_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
     amount = Config.PRICE_20_TOKENS
 
     db = await get_db()
-    await db.create_order(user_id, label, amount)
+    await db.create_order(user_id, label, amount, data={'token_pack': 20})
 
     try:
         payment = Payment.create({
@@ -96,7 +116,7 @@ async def send_tokens_purchase_message(user_id: int, context: ContextTypes.DEFAU
     label = f"tokens20_{user_id}_{uuid.uuid4().hex[:8]}"
     amount = Config.PRICE_20_TOKENS
     db = await get_db()
-    await db.create_order(user_id, label, amount)
+    await db.create_order(user_id, label, amount, data={'token_pack': 20})
 
     try:
         payment = Payment.create({
@@ -168,142 +188,66 @@ async def my_tokens_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [[InlineKeyboardButton("💎 Купить 20 жетонов за 700₽", callback_data="buy_tokens")]]
     await update.message.reply_text(text, parse_mode='Markdown', reply_markup=InlineKeyboardMarkup(keyboard))
 
-# ---------- Обработка вебхука ЮKassa ----------
-async def process_yookassa_webhook(data: dict, bot: Bot, db):
-    logger.info(f"Обработка уведомления от ЮKassa: {data}")
-    event = data.get('event')
-    if event != 'payment.succeeded':
-        logger.info(f"Игнорируем событие {event}")
-        return
-
-    payment = data.get('object')
-    if not payment:
-        logger.warning("Нет объекта payment в уведомлении")
-        return
-
-    metadata = payment.get('metadata', {})
-    label = metadata.get('label')
-    if not label:
-        logger.warning("Нет label в метаданных платежа")
-        return
-
-    if await db.is_order_processed(label):
-        logger.info(f"Заказ {label} уже обработан, пропускаем")
-        return
-
-    user_id = int(metadata.get('user_id', 0))
-    if not user_id:
-        parts = label.split('_')
-        if len(parts) > 1:
-            try:
-                user_id = int(parts[1])
-            except:
-                pass
-
-    if not user_id:
-        logger.error(f"Не удалось определить user_id для label {label}")
-        return
-
-    if label.startswith("tokens20_"):
-        await db.add_tokens(user_id, 20)
-        await bot.send_message(
-            chat_id=user_id,
-            text="✅ Вам начислено 20 жетонов! Используйте их при генерации."
-        )
-        await db.mark_order_processed(label)
-    elif label.startswith("couple_"):
-        order_data = await db.get_order_data(label)
-        if order_data:
-            from handlers.couple import generate_couple_photo_from_data
-            await generate_couple_photo_from_data(user_id, bot, db, order_data)
-            await db.mark_order_processed(label)
-        else:
-            logger.error(f"Нет данных для заказа {label}")
-            await bot.send_message(
-                chat_id=user_id,
-                text="✅ Оплата получена, но произошла ошибка. Начните заново с кнопки «👫 Парные фото»."
-            )
-    elif label.startswith("custom_"):
-        order_data = await db.get_order_data(label)
-        if order_data:
-            from handlers.custom_prompt import generate_custom_photo_from_data
-            await generate_custom_photo_from_data(user_id, bot, db, order_data)
-            await db.mark_order_processed(label)
-        else:
-            logger.error(f"Нет данных для заказа {label}")
-            await bot.send_message(
-                chat_id=user_id,
-                text="✅ Оплата получена, но произошла ошибка. Начните заново с кнопки «✍️ Свой промпт»."
-            )
-    elif label.startswith("video_"):
-        order_data = await db.get_order_data(label)
-        if order_data:
-            from handlers.video import generate_video_from_data
-            await generate_video_from_data(user_id, bot, db, order_data)
-            await db.mark_order_processed(label)
-        else:
-            logger.error(f"Нет данных для заказа {label}")
-            await bot.send_message(
-                chat_id=user_id,
-                text="✅ Оплата получена, но произошла ошибка. Начните заново с кнопки «🎬 Создать видео»."
-            )
-    else:
-        await generate_paid_photo(user_id, bot, db, context=None, label=label)
-
-# ---------- Генерация фото после оплаты (с отметкой processed только после успеха) ----------
-async def generate_paid_photo(user_id: int, bot: Bot, db, context=None, label=None):
+# ---------- Генерация фото после оплаты (для одиночных фото) ----------
+async def generate_paid_photo(user_id: int, bot: Bot, db, context=None, label=None, order_data=None):
+    """
+    Универсальная функция генерации для одиночных фото.
+    order_data может содержать selected_model, style_key.
+    """
     try:
+        # Если передан label, проверяем обработку
         if label:
             if await db.is_order_processed(label):
-                logger.info(f"Заказ {label} уже обработан, пропускаем генерацию для user {user_id}")
+                logger.info(f"Заказ {label} уже обработан, пропускаем")
                 return
-            logger.info(f"Начинаем генерацию для заказа {label}, user {user_id}")
+            # Получаем данные заказа, если не переданы отдельно
+            if order_data is None:
+                order_data = await db.get_order_data(label)
+            logger.info(f"Генерация для заказа {label}, user {user_id}, данные: {order_data}")
 
-        style_key = await db.get_user_selected_style(user_id)
+        # Определяем модель и стиль
+        selected_model = 'gemini'
+        style_key = None
+        if order_data:
+            selected_model = order_data.get('selected_model', 'gemini')
+            style_key = order_data.get('style_key')
+        elif context and context.user_data:
+            selected_model = context.user_data.get('selected_model', 'gemini')
+            style_key = context.user_data.get('selected_style')
+
         if not style_key:
-            await bot.send_message(
-                chat_id=user_id,
-                text="❌ Стиль не был выбран. Пожалуйста, сначала выберите стиль через меню «🖼️ Стили»."
-            )
-            from handlers.styles import show_styles_menu
-            await show_styles_menu(user_id, context)
-            return
+            # Пытаемся взять последний выбранный стиль из БД
+            style_key = await db.get_user_selected_style(user_id)
+            if not style_key:
+                await bot.send_message(
+                    chat_id=user_id,
+                    text="❌ Стиль не был выбран. Пожалуйста, сначала выберите стиль через меню «🖼️ Стили»."
+                )
+                # Можно показать меню стилей
+                from handlers.styles import show_styles_menu
+                await show_styles_menu(user_id, context)
+                return
 
         style = Config.STYLES.get(style_key)
         if not style:
-            await bot.send_message(
-                chat_id=user_id,
-                text="❌ Выбранный стиль не найден. Попробуйте выбрать стиль заново."
-            )
+            await bot.send_message(user_id, "❌ Выбранный стиль не найден. Попробуйте снова.")
             return
 
         photo_paths = await db.get_user_photos(user_id, "input")
         if not photo_paths:
-            await bot.send_message(
-                chat_id=user_id,
-                text="❌ Не найдены ваши фото. Сначала загрузите их через «📤 Загрузить фото»."
-            )
+            await bot.send_message(user_id, "❌ Не найдены ваши фото. Загрузите их через «📤 Загрузить фото».")
             return
 
         gender = await db.get_user_gender(user_id)
-        selected_model = 'gemini'
-        if context is not None and context.user_data is not None:
-            selected_model = context.user_data.get('selected_model', 'gemini')
 
         if selected_model == 'gemini':
             service = AITunnelService()
-            logger.info(f"Generating with Gemini for user {user_id}")
         elif selected_model == 'gpt':
             service = AITunnelService(model_type="gpt", quality="high", size="1536x1024")
-            logger.info(f"Generating with GPT Image High for user {user_id}")
         elif selected_model == 'nanobanana':
             service = AITunnelService(model_type="nanobanana")
-            logger.info(f"Generating with Nano Banana Pro for user {user_id}")
         else:
-            await bot.send_message(
-                chat_id=user_id,
-                text="❌ Неизвестная модель генерации."
-            )
+            await bot.send_message(user_id, "❌ Неизвестная модель генерации.")
             return
 
         results = await service.generate_photos(
@@ -314,41 +258,113 @@ async def generate_paid_photo(user_id: int, bot: Bot, db, context=None, label=No
         )
 
         if results:
-            await bot.send_message(
-                chat_id=user_id,
-                text=f"✅ Оплата получена! Ваше фото в стиле {style['name']}:"
-            )
+            await bot.send_message(user_id, f"✅ Оплата получена! Ваше фото в стиле {style['name']}:")
             for image_data in results:
                 await send_photo_or_fallback(bot, user_id, image_data)
 
             if label:
                 await db.mark_order_processed(label)
-                logger.info(f"Заказ {label} успешно выполнен, помечен как processed")
 
-            if context is not None and context.user_data is not None:
+            # Очистка временных данных, если есть context
+            if context and context.user_data:
                 context.user_data.pop('selected_style', None)
                 context.user_data.pop('selected_model', None)
 
             await bot.send_message(
-                chat_id=user_id,
+                user_id,
                 text="👇 *Главное меню*:",
                 parse_mode='Markdown',
                 reply_markup=get_main_menu_keyboard()
             )
         else:
-            logger.error(f"Генерация не дала результатов для user {user_id}, заказ {label} остаётся pending")
+            logger.error(f"Генерация не удалась для user {user_id}, заказ {label}")
             await bot.send_message(
-                chat_id=user_id,
-                text="❌ Не удалось сгенерировать фото. Пожалуйста, попробуйте позже. "
-                     "Если средства были списаны, они вернутся автоматически или обратитесь в поддержку."
+                user_id,
+                text="❌ Не удалось сгенерировать фото. Попробуйте позже. "
+                     "Если деньги списаны, они вернутся автоматически."
             )
     except Exception as e:
-        logger.error(f"Критическая ошибка в generate_paid_photo для user {user_id}: {e}", exc_info=True)
+        logger.error(f"Ошибка в generate_paid_photo: {e}", exc_info=True)
         await bot.send_message(
-            chat_id=user_id,
-            text="❌ Произошла внутренняя ошибка. Мы уже работаем над её исправлением.\n"
-                 "Если средства были списаны, они вернутся автоматически."
+            user_id,
+            text="❌ Внутренняя ошибка. Мы уже работаем над исправлением."
         )
+
+# ---------- Обработка вебхука ЮKassa ----------
+async def process_yookassa_webhook(data: dict, bot: Bot, db):
+    logger.info(f"Получено уведомление от ЮKassa: {data}")
+    event = data.get('event')
+    if event != 'payment.succeeded':
+        logger.info(f"Игнорируем событие {event}")
+        return
+
+    payment = data.get('object')
+    if not payment:
+        logger.warning("Нет объекта payment")
+        return
+
+    metadata = payment.get('metadata', {})
+    label = metadata.get('label')
+    if not label:
+        logger.warning("Нет label в метаданных")
+        return
+
+    # Проверяем, не обработан ли уже заказ
+    if await db.is_order_processed(label):
+        logger.info(f"Заказ {label} уже обработан, пропускаем")
+        return
+
+    # Получаем user_id из метаданных или из label
+    user_id = metadata.get('user_id')
+    if not user_id:
+        parts = label.split('_')
+        if len(parts) > 1 and parts[1].isdigit():
+            user_id = int(parts[1])
+    if not user_id:
+        logger.error(f"Не удалось определить user_id для {label}")
+        return
+
+    # Обработка в зависимости от префикса
+    if label.startswith("tokens20_"):
+        await db.add_tokens(user_id, 20)
+        await bot.send_message(user_id, "✅ Вам начислено 20 жетонов! Используйте их при генерации.")
+        await db.mark_order_processed(label)
+
+    elif label.startswith("couple_"):
+        order_data = await db.get_order_data(label)
+        if order_data:
+            from handlers.couple import generate_couple_photo_from_data
+            await generate_couple_photo_from_data(user_id, bot, db, order_data)
+            await db.mark_order_processed(label)
+        else:
+            logger.error(f"Нет данных для заказа {label}")
+            await bot.send_message(user_id, "✅ Оплата получена, но произошла ошибка. Начните заново.")
+
+    elif label.startswith("custom_"):
+        order_data = await db.get_order_data(label)
+        if order_data:
+            from handlers.custom_prompt import generate_custom_photo_from_data
+            await generate_custom_photo_from_data(user_id, bot, db, order_data)
+            await db.mark_order_processed(label)
+        else:
+            logger.error(f"Нет данных для заказа {label}")
+            await bot.send_message(user_id, "✅ Оплата получена, но произошла ошибка. Начните заново.")
+
+    elif label.startswith("video_"):
+        order_data = await db.get_order_data(label)
+        if order_data:
+            from handlers.video import generate_video_from_data
+            await generate_video_from_data(user_id, bot, db, order_data)
+            await db.mark_order_processed(label)
+        else:
+            logger.error(f"Нет данных для заказа {label}")
+            await bot.send_message(user_id, "✅ Оплата получена, но произошла ошибка. Начните заново.")
+
+    else:  # Одиночные фото (single_...)
+        order_data = await db.get_order_data(label)
+        await generate_paid_photo(user_id, bot, db, label=label, order_data=order_data)
+
+    logger.info(f"Обработка платежа {label} завершена")
 
 # ---------- Экспорт обработчиков ----------
 buy_handler = CommandHandler("buy", buy_command)

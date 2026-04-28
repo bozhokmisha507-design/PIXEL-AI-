@@ -23,12 +23,13 @@ from handlers.styles import styles_handler, show_styles_cb, style_selected_cb, m
 from handlers.upload import upload_conversation
 from handlers.clean import clean_photos_handler
 from handlers.payment import (
-    buy_handler, buy_tokens_handler, buy_tokens_callback_handler, add_tokens_handler
-    # my_tokens_handler не импортируем, так как он не является обработчиком
+    buy_handler, buy_tokens_handler, buy_tokens_callback_handler
+    # add_tokens_handler убран, используем новый диалог из admin.py
 )
 from handlers.couple import couple_conv
 from handlers.video import video_conv
 from handlers.custom_prompt import custom_prompt_conv
+from handlers.admin import add_tokens_conv, broadcast_handler   # новые админ-обработчики
 
 from webhook_server import start_webhook_server
 
@@ -83,11 +84,12 @@ async def main_async():
     application.add_handler(buy_tokens_callback_handler)
     application.add_handler(CallbackQueryHandler(offer_callback, pattern="^(accept_offer|decline_offer)$"))
 
-    # Команды (обработчики команд)
+    # Команды
     application.add_handler(buy_handler)
     application.add_handler(buy_tokens_handler)
-    application.add_handler(add_tokens_handler)
-    # my_tokens_command не является обработчиком команды, он вызывается из кнопки. Не добавляем его как add_handler.
+    # Новые админ-команды:
+    application.add_handler(add_tokens_conv)      # диалог /add_tokens
+    application.add_handler(broadcast_handler)   # команда /broadcast
 
     # Обработчик кнопок главного меню
     application.add_handler(MessageHandler(

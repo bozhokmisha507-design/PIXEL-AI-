@@ -49,7 +49,7 @@ async def tokens_info_command(update: Update, context: ContextTypes.DEFAULT_TYPE
         "• GPT Image High = 2 жетона\n"
         "• Nano Banana Pro = 2 жетона\n"
         "• Парные фото = 2 жетона\n"
-        "• Видео Sora = 8 жетона (≈ 280₽)"
+        "• Видео Sora = 8 жетонов (≈ 280₽)"
     )
     keyboard = [[InlineKeyboardButton("💎 Купить 20 жетонов за 700₽", callback_data="buy_tokens")]]
     await update.message.reply_text(

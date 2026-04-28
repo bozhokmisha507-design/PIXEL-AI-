@@ -1,7 +1,8 @@
-from telegram import Update, ParseMode
+from telegram import Update
+from telegram.constants import ParseMode
 from telegram.ext import ContextTypes, CommandHandler, ConversationHandler, MessageHandler, filters
 from database.db import get_db
-from config import ADMIN_IDS
+from config import Config
 import logging
 
 logger = logging.getLogger(__name__)
@@ -14,7 +15,7 @@ ASK_USER_ID, ASK_AMOUNT = range(2)
 # ------------------------------------------------------------
 async def add_tokens_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
-    if user_id not in ADMIN_IDS:
+    if user_id not in Config.ADMIN_IDS:
         await update.message.reply_text("⛔ У вас нет прав на эту команду.")
         return ConversationHandler.END
 
@@ -96,7 +97,7 @@ async def broadcast_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
 
     # Проверка прав администратора
-    if user_id not in ADMIN_IDS:
+    if user_id not in Config.ADMIN_IDS:
         await update.message.reply_text("⛔ У вас нет прав на эту команду.")
         return
 

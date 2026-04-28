@@ -83,6 +83,23 @@ class Database:
                     )
                 """)
 
+                # Миграции для существующих таблиц (добавление колонок, если их нет)
+                # Добавляем колонку processed (если по какой-то причине отсутствует)
+                try:
+                    await conn.execute("ALTER TABLE orders ADD COLUMN processed BOOLEAN DEFAULT FALSE")
+                    logger.info("✅ Колонка processed добавлена в таблицу orders")
+                except Exception as e:
+                    if 'duplicate column' not in str(e).lower():
+                        logger.warning(f"Не удалось добавить processed: {e}")
+
+                # Добавляем колонку payment_id (если отсутствует)
+                try:
+                    await conn.execute("ALTER TABLE orders ADD COLUMN payment_id TEXT")
+                    logger.info("✅ Колонка payment_id добавлена в таблицу orders")
+                except Exception as e:
+                    if 'duplicate column' not in str(e).lower():
+                        logger.warning(f"Не удалось добавить payment_id: {e}")
+
                 # Индексы
                 await conn.execute("CREATE INDEX IF NOT EXISTS idx_orders_label ON orders(label)")
                 await conn.execute("CREATE INDEX IF NOT EXISTS idx_orders_processed ON orders(processed)")

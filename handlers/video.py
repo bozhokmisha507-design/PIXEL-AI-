@@ -32,7 +32,7 @@ VIDEO_MODELS = {
         "price_tokens": 2,
         "duration": 10,
         "size": "1080x1440",
-        "model_api": "seedance-1.5-pro"
+        "model_api": "seedance-1-5-pro"
     }
 }
 

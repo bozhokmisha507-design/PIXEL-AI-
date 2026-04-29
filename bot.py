@@ -3,6 +3,7 @@ import sys
 import logging
 import asyncio
 import warnings
+from datetime import datetime, timedelta
 from telegram.warnings import PTBUserWarning
 
 warnings.filterwarnings("ignore", category=PTBUserWarning)
@@ -39,6 +40,27 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# ========== Функция очистки старых фото ==========
+async def clean_old_files_job(context):
+    """Удаляет файлы в UPLOAD_DIR старше 7 дней."""
+    now = datetime.now()
+    deleted = 0
+    if not os.path.exists(Config.UPLOAD_DIR):
+        return
+    for root, dirs, files in os.walk(Config.UPLOAD_DIR):
+        for file in files:
+            file_path = os.path.join(root, file)
+            try:
+                mtime = datetime.fromtimestamp(os.path.getmtime(file_path))
+                if now - mtime > timedelta(days=7):
+                    os.remove(file_path)
+                    deleted += 1
+                    logger.debug(f"Удалён старый файл: {file_path}")
+            except Exception as e:
+                logger.warning(f"Ошибка удаления {file_path}: {e}")
+    if deleted:
+        logger.info(f"🧹 Очистка фото: удалено {deleted} файлов старше 7 дней")
+
 async def post_init(application: Application) -> None:
     try:
         bot_user = await application.bot.get_me()
@@ -62,6 +84,15 @@ async def main_async():
         return
 
     application = Application.builder().token(Config.BOT_TOKEN).post_init(post_init).build()
+
+    # ---------- Планирование ежедневной очистки фото ----------
+    job_queue = application.job_queue
+    if job_queue:
+        # Запуск каждый день в 3:00
+        job_queue.run_daily(clean_old_files_job, time=datetime.time(hour=3, minute=0))
+        logger.info("📅 Запланирована ежедневная очистка старых фото в 3:00")
+    else:
+        logger.warning("JobQueue недоступен, очистка фото не запланирована")
 
     # Регистрация обработчиков
     application.add_handler(start_handler)

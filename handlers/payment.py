@@ -274,12 +274,16 @@ async def generate_paid_photo(user_id: int, bot: Bot, db, context=None, label=No
                 user_id,
                 text="❌ Не удалось сгенерировать фото. Попробуйте позже. Если деньги списаны, они вернутся автоматически."
             )
+            # В этом случае исключение не выбрасываем, просто возвращаем None
+            return
     except Exception as e:
         logger.error(f"Ошибка в generate_paid_photo: {e}", exc_info=True)
         await bot.send_message(
             user_id,
             text="❌ Внутренняя ошибка. Мы уже работаем над исправлением."
         )
+        # Пробрасываем исключение, чтобы вебхук мог обработать неудачу и начислить жетоны
+        raise
 
 # ---------- Обработка вебхука ЮKassa ----------
 async def process_yookassa_webhook(data: dict, bot: Bot, db):
@@ -313,6 +317,7 @@ async def process_yookassa_webhook(data: dict, bot: Bot, db):
         logger.error(f"Не удалось определить user_id для {label}")
         return
 
+    # ---------- Обработка разных типов заказов ----------
     if label.startswith("tokens20_"):
         await db.add_tokens(user_id, 20)
         await bot.send_message(user_id, "✅ Вам начислено 20 жетонов! Используйте их при генерации.")
@@ -321,33 +326,87 @@ async def process_yookassa_webhook(data: dict, bot: Bot, db):
     elif label.startswith("couple_"):
         order_data = await db.get_order_data(label)
         if order_data:
-            from handlers.couple import generate_couple_photo_from_data
-            await generate_couple_photo_from_data(user_id, bot, db, order_data)
-            await db.mark_order_processed(label)
+            try:
+                from handlers.couple import generate_couple_photo_from_data
+                await generate_couple_photo_from_data(user_id, bot, db, order_data)
+            except Exception as e:
+                logger.error(f"Ошибка генерации парного фото {label}: {e}", exc_info=True)
+                # Компенсация: начисляем жетоны, равные стоимости парной генерации
+                await db.add_tokens(user_id, Config.COUPLE_TOKEN_COST)
+                await bot.send_message(
+                    user_id,
+                    f"⚠️ Произошла техническая ошибка при генерации парного фото. Вам начислено {Config.COUPLE_TOKEN_COST} жетонов в качестве компенсации. Вы можете повторить попытку."
+                )
+            finally:
+                await db.mark_order_processed(label)
         else:
             logger.error(f"Нет данных для заказа {label}")
 
     elif label.startswith("custom_"):
         order_data = await db.get_order_data(label)
         if order_data:
-            from handlers.custom_prompt import generate_custom_photo_from_data
-            await generate_custom_photo_from_data(user_id, bot, db, order_data)
-            await db.mark_order_processed(label)
+            try:
+                from handlers.custom_prompt import generate_custom_photo_from_data
+                await generate_custom_photo_from_data(user_id, bot, db, order_data)
+            except Exception as e:
+                logger.error(f"Ошибка генерации кастомного фото {label}: {e}", exc_info=True)
+                # Кастомная генерация всегда использует GPT -> 2 жетона
+                tokens = Config.TOKEN_COST_GPT
+                await db.add_tokens(user_id, tokens)
+                await bot.send_message(
+                    user_id,
+                    f"⚠️ Произошла техническая ошибка при генерации. Вам начислено {tokens} жетонов."
+                )
+            finally:
+                await db.mark_order_processed(label)
         else:
             logger.error(f"Нет данных для заказа {label}")
 
     elif label.startswith("video_"):
         order_data = await db.get_order_data(label)
         if order_data:
-            from handlers.video import generate_video_from_data
-            await generate_video_from_data(user_id, bot, db, order_data)
-            await db.mark_order_processed(label)
+            try:
+                from handlers.video import generate_video_from_data
+                await generate_video_from_data(user_id, bot, db, order_data)
+            except Exception as e:
+                logger.error(f"Ошибка генерации видео {label}: {e}", exc_info=True)
+                # Видео стоит 8 жетонов (константа VIDEO_TOKEN_COST)
+                tokens = 8  # можно вынести в Config.VIDEO_TOKEN_COST, если ещё нет
+                await db.add_tokens(user_id, tokens)
+                await bot.send_message(
+                    user_id,
+                    f"⚠️ Ошибка генерации видео. Вам начислено {tokens} жетонов. Попробуйте позже."
+                )
+            finally:
+                await db.mark_order_processed(label)
         else:
             logger.error(f"Нет данных для заказа {label}")
 
-    else:  # одиночные фото
+    else:  # одиночные фото (single_...)
         order_data = await db.get_order_data(label)
-        await generate_paid_photo(user_id, bot, db, label=label, order_data=order_data)
+        if not order_data:
+            logger.error(f"Нет данных для заказа {label}")
+            return
+        try:
+            await generate_paid_photo(user_id, bot, db, label=label, order_data=order_data)
+        except Exception as e:
+            logger.error(f"Ошибка генерации одиночного фото {label}: {e}", exc_info=True)
+            # Определяем стоимость в жетонах по модели
+            selected_model = order_data.get('selected_model', 'gemini')
+            if selected_model == 'gemini':
+                tokens = Config.TOKEN_COST_GEMINI
+            elif selected_model == 'gpt':
+                tokens = Config.TOKEN_COST_GPT
+            else:  # nanobanana
+                tokens = Config.TOKEN_COST_NANOBANANA
+            await db.add_tokens(user_id, tokens)
+            await bot.send_message(
+                user_id,
+                f"⚠️ Произошла техническая ошибка. Вам начислено {tokens} жетонов. Вы можете повторить попытку позже."
+            )
+            # Заказ уже помечается как обработанный внутри generate_paid_photo при вызове raise?
+            # На всякий случай пометим здесь, чтобы избежать повторных попыток
+            await db.mark_order_processed(label)
 
     logger.info(f"Обработка платежа {label} завершена")
 

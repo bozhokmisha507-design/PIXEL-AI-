@@ -1,5 +1,6 @@
 import uuid
 import logging
+import asyncio
 from decimal import Decimal
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
@@ -10,7 +11,7 @@ from handlers.menu import get_main_menu_keyboard, MAIN_MENU_BUTTONS
 from database.db import get_db
 from services.aitunnel_service import AITunnelService
 from utils.helpers import send_photo_or_fallback
-from yookassa import Payment   # <-- добавлен импорт ЮKassa
+from yookassa import Payment, Configuration
 
 logger = logging.getLogger(__name__)
 
@@ -21,9 +22,12 @@ GET_PROMPT, CONFIRM = range(2)
 TOKEN_COST = 2
 PRICE = Config.PRICE_PREMIUM  # 76 руб
 
+# Убедимся, что ЮKassa настроена (если ещё нет)
+Configuration.account_id = Config.YKASSA_SHOP_ID
+Configuration.secret_key = Config.YKASSA_SECRET_KEY
+
 async def custom_prompt_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Начало диалога: проверяем наличие фото и не запущен ли уже диалог."""
-    # Защита от повторного запуска
     if context.user_data.get('in_custom_prompt'):
         await update.message.reply_text(
             "⚠️ Вы уже начали диалог создания кастомного промпта. Пожалуйста, завершите его или введите /cancel.",
@@ -43,7 +47,6 @@ async def custom_prompt_start(update: Update, context: ContextTypes.DEFAULT_TYPE
         )
         return ConversationHandler.END
 
-    # Помечаем, что диалог активен
     context.user_data['in_custom_prompt'] = True
 
     await update.message.reply_text(
@@ -58,11 +61,8 @@ async def get_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Сохраняем промпт и переходим к выбору способа оплаты."""
     text = update.message.text.strip()
 
-    # Если пользователь нажал на любую кнопку главного меню (включая "✍️ Свой промпт")
     if text in MAIN_MENU_BUTTONS:
-        # Завершаем текущий диалог
         context.user_data.clear()
-        # Передаём управление общему обработчику кнопок
         from handlers.start import handle_main_menu_buttons
         await handle_main_menu_buttons(update, context)
         return ConversationHandler.END
@@ -120,7 +120,6 @@ async def pay_with_tokens_callback(update: Update, context: ContextTypes.DEFAULT
     await generate_custom_photo(user_id, context.bot, db, context)
     return ConversationHandler.END
 
-# ========== ЗАМЕНЁННАЯ ФУНКЦИЯ (ЮKassa) ==========
 async def pay_with_money_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Оплата деньгами через ЮKassa."""
     query = update.callback_query
@@ -149,6 +148,8 @@ async def pay_with_money_callback(update: Update, context: ContextTypes.DEFAULT_
             "description": "Кастомная генерация фото в PIXEL AI (GPT)",
             "metadata": {"label": label, "user_id": user_id}
         }, uuid.uuid4())
+        payment_id = payment.id
+        await db.update_order_payment_id(label, payment_id)
         payment_url = payment.confirmation.confirmation_url
     except Exception as e:
         logger.error(f"Ошибка создания платежа для кастомной генерации: {e}")
@@ -238,10 +239,15 @@ async def generate_custom_photo(user_id: int, bot, db, context):
             await db.add_tokens(user_id, token_cost)
             await bot.send_message(user_id, f"💎 Вам возвращено {token_cost} жетонов.")
         context.user_data.pop('in_custom_prompt', None)
+        # Пробрасываем исключение, чтобы вебхук мог обработать и начислить компенсацию при оплате деньгами
+        raise
 
 # ---------- Функция для оплаты деньгами (вызывается из вебхука) ----------
 async def generate_custom_photo_from_data(user_id: int, bot, db, data: dict):
-    """Генерация по кастомному промпту после оплаты деньгами (вызывается из payment.py)."""
+    """
+    Генерация по кастомному промпту после оплаты деньгами.
+    В случае ошибки пробрасывает исключение, чтобы вебхук начислил компенсационные жетоны.
+    """
     try:
         prompt = data.get('prompt')
         if not prompt:
@@ -275,6 +281,8 @@ async def generate_custom_photo_from_data(user_id: int, bot, db, data: dict):
             await send_photo_or_fallback(bot, user_id, results[0])
         else:
             await bot.send_message(user_id, "❌ Не удалось сгенерировать фото. Попробуйте позже.")
+            # Здесь не возвращаем жетоны, так как оплата была рублями.
+            # Компенсация будет начислена через except-блок вебхука.
 
         await bot.send_message(
             chat_id=user_id,
@@ -285,6 +293,8 @@ async def generate_custom_photo_from_data(user_id: int, bot, db, data: dict):
     except Exception as e:
         logger.error(f"Ошибка генерации кастомного фото (оплата деньгами): {e}", exc_info=True)
         await bot.send_message(user_id, "❌ Произошла ошибка. Мы уже работаем над её исправлением.")
+        # Пробрасываем исключение, чтобы вебхук перехватил и начислил компенсационные жетоны
+        raise
 
 # ConversationHandler
 custom_prompt_conv = ConversationHandler(

@@ -1,6 +1,7 @@
 import uuid
 import logging
 import os
+import asyncio
 from decimal import Decimal
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, Bot
 from telegram.ext import ContextTypes, ConversationHandler, CommandHandler, MessageHandler, filters, CallbackQueryHandler
@@ -10,10 +11,14 @@ from database.db import get_db
 from services.aitunnel_service import AITunnelService
 from utils.helpers import send_video_or_fallback
 
-# Импорт ЮKassa (установите через pip install yookassa)
-from yookassa import Payment
+# Импорт ЮKassa
+from yookassa import Payment, Configuration
 
 logger = logging.getLogger(__name__)
+
+# Инициализация ЮKassa (на всякий случай, если payment.py не загружен)
+Configuration.account_id = Config.YKASSA_SHOP_ID
+Configuration.secret_key = Config.YKASSA_SECRET_KEY
 
 # Состояния диалога
 PHOTO, PROMPT, MODEL_SELECT, CONFIRM = range(4)
@@ -164,10 +169,11 @@ async def pay_with_tokens_callback(update: Update, context: ContextTypes.DEFAULT
         return ConversationHandler.END
 
     await query.edit_message_text("⏳ Генерация видео с использованием жетонов...")
+    # Передаём флаг, что оплачено жетонами
+    context.user_data['video_paid_with_tokens'] = True
     await generate_video(user_id, context.bot, db, context)
     return ConversationHandler.END
 
-# ========== ЗАМЕНЁННАЯ ФУНКЦИЯ (ЮKassa) ==========
 async def pay_with_money_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -195,6 +201,8 @@ async def pay_with_money_callback(update: Update, context: ContextTypes.DEFAULT_
             "description": "Генерация видео в PIXEL AI",
             "metadata": {"label": label, "user_id": user_id}
         }, uuid.uuid4())
+        # Сохраняем payment_id для fallback-проверки
+        await db.update_order_payment_id(label, payment.id)
         payment_url = payment.confirmation.confirmation_url
     except Exception as e:
         logger.error(f"Ошибка создания платежа для видео: {e}")
@@ -223,6 +231,8 @@ async def cancel_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return ConversationHandler.END
 
 async def generate_video(user_id: int, bot: Bot, db, context=None):
+    """Генерация видео после оплаты жетонами (с возвратом жетонов при ошибке)."""
+    paid_with_tokens = context.user_data.get('video_paid_with_tokens', False)
     try:
         prompt = context.user_data.get('video_prompt')
         model_key = context.user_data.get('video_model', 'sora2pro')
@@ -247,6 +257,10 @@ async def generate_video(user_id: int, bot: Bot, db, context=None):
             await send_video_or_fallback(bot, user_id, video_data)
         else:
             await bot.send_message(user_id, "❌ Не удалось сгенерировать видео. Попробуйте позже.")
+            # Если оплата была жетонами и генерация не удалась, возвращаем жетоны
+            if paid_with_tokens:
+                await db.add_tokens(user_id, VIDEO_TOKEN_COST)
+                await bot.send_message(user_id, f"💎 Вам возвращено {VIDEO_TOKEN_COST} жетонов.")
 
         for path in photo_paths:
             try:
@@ -256,6 +270,7 @@ async def generate_video(user_id: int, bot: Bot, db, context=None):
                 pass
         context.user_data.pop('video_prompt', None)
         context.user_data.pop('video_photos', None)
+        context.user_data.pop('video_paid_with_tokens', None)
 
         await bot.send_message(
             chat_id=user_id,
@@ -266,8 +281,15 @@ async def generate_video(user_id: int, bot: Bot, db, context=None):
     except Exception as e:
         logger.error(f"Ошибка генерации видео: {e}", exc_info=True)
         await bot.send_message(user_id, "❌ Произошла ошибка. Мы уже работаем над её исправлением.")
+        # Возвращаем жетоны, если были списаны
+        if paid_with_tokens:
+            await db.add_tokens(user_id, VIDEO_TOKEN_COST)
+            await bot.send_message(user_id, f"💎 Вам возвращено {VIDEO_TOKEN_COST} жетонов.")
+        # Пробрасываем исключение для вебхука (чтобы начислить компенсацию при оплате деньгами)
+        raise
 
 async def generate_video_from_data(user_id: int, bot: Bot, db, data: dict):
+    """Генерация видео по данным из заказа (оплата деньгами, вызывается из вебхука)."""
     try:
         prompt = data.get('prompt')
         model_key = data.get('model', 'sora2pro')
@@ -294,6 +316,8 @@ async def generate_video_from_data(user_id: int, bot: Bot, db, data: dict):
             await send_video_or_fallback(bot, user_id, video_data)
         else:
             await bot.send_message(user_id, "❌ Не удалось сгенерировать видео. Попробуйте позже.")
+            # Если не удалось, пробрасываем исключение для начисления компенсации
+            raise Exception("AI Tunnel не вернул видео")
 
         for path in photo_paths:
             try:
@@ -311,6 +335,8 @@ async def generate_video_from_data(user_id: int, bot: Bot, db, data: dict):
     except Exception as e:
         logger.error(f"Ошибка генерации видео из данных: {e}", exc_info=True)
         await bot.send_message(user_id, "❌ Произошла ошибка. Мы уже работаем над её исправлением.")
+        # Пробрасываем исключение, чтобы вебхук мог начислить компенсационные жетоны
+        raise
 
 video_conv = ConversationHandler(
     entry_points=[MessageHandler(filters.Text("🎬 Создать видео"), video_start)],

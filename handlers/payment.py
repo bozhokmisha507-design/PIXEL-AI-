@@ -9,7 +9,6 @@ from handlers.menu import get_main_menu_keyboard
 from services.aitunnel_service import AITunnelService
 from database.db import get_db
 from utils.helpers import send_photo_or_fallback
-from handlers.video import VIDEO_MODELS  # нужно для компенсации при ошибках видео
 
 logger = logging.getLogger(__name__)
 
@@ -167,8 +166,7 @@ async def my_tokens_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "• GPT Image High = 2 жетона\n"
         "• Nano Banana Pro = 2 жетона\n"
         "• Парные фото = 2 жетона\n"
-        "• Видео (Sora 2 Pro) = 8 жетонов\n"
-        "• Видео (Seedance 1.5 Pro) = 2 жетона"
+        "• Видео Sora 2 Pro = 8 жетонов"
     )
     keyboard = [[InlineKeyboardButton("💎 Купить 20 жетонов за 700₽", callback_data="buy_tokens")]]
     await update.message.reply_text(text, parse_mode='Markdown', reply_markup=InlineKeyboardMarkup(keyboard))
@@ -349,9 +347,7 @@ async def process_yookassa_webhook(data: dict, bot: Bot, db):
                 await generate_video_from_data(user_id, bot, db, order_data)
             except Exception as e:
                 logger.error(f"Ошибка генерации видео {label}: {e}", exc_info=True)
-                model_key = order_data.get('model', 'sora2pro')
-                model_info = VIDEO_MODELS.get(model_key, VIDEO_MODELS.get('sora2pro', {'price_tokens': 8}))
-                token_cost = model_info.get('price_tokens', 8)
+                token_cost = 8  # Sora 2 Pro стоит 8 жетонов
                 await db.add_tokens(user_id, token_cost)
                 await bot.send_message(
                     user_id,
@@ -387,7 +383,7 @@ async def process_yookassa_webhook(data: dict, bot: Bot, db):
 
     logger.info(f"Обработка платежа {label} завершена")
 
-# ---------- Экспорт обработчиков (только нужные) ----------
+# ---------- Экспорт обработчиков ----------
 buy_handler = CommandHandler("buy", buy_command)
 buy_tokens_handler = CommandHandler("buy20", buy_tokens_command)
 buy_tokens_callback_handler = CallbackQueryHandler(buy_tokens_callback, pattern="^buy_tokens$")

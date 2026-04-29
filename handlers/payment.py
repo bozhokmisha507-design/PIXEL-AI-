@@ -9,7 +9,7 @@ from handlers.menu import get_main_menu_keyboard
 from services.aitunnel_service import AITunnelService
 from database.db import get_db
 from utils.helpers import send_photo_or_fallback
-from handlers.video import VIDEO_MODELS  # <-- импорт для видео-моделей
+from handlers.video import VIDEO_MODELS  # нужно для компенсации при ошибках видео
 
 logger = logging.getLogger(__name__)
 
@@ -156,25 +156,6 @@ async def buy_tokens_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
     user_id = query.from_user.id
     await send_tokens_purchase_message(user_id, context)
 
-# ---------- Административная команда начисления жетонов ----------
-async def add_tokens_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id not in Config.ADMIN_IDS:
-        await update.message.reply_text("❌ У вас нет прав для этой команды.")
-        return
-    args = context.args
-    if len(args) != 2:
-        await update.message.reply_text("❌ Использование: /add_tokens <user_id> <количество>")
-        return
-    try:
-        user_id = int(args[0])
-        amount = int(args[1])
-    except ValueError:
-        await update.message.reply_text("❌ Неверные аргументы.")
-        return
-    db = await get_db()
-    await db.add_tokens(user_id, amount)
-    await update.message.reply_text(f"✅ Пользователю {user_id} начислено {amount} жетонов.")
-
 # ---------- Показать баланс жетонов ----------
 async def my_tokens_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
@@ -186,7 +167,8 @@ async def my_tokens_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "• GPT Image High = 2 жетона\n"
         "• Nano Banana Pro = 2 жетона\n"
         "• Парные фото = 2 жетона\n"
-        "• Видео = 8 жетонов"
+        "• Видео (Sora 2 Pro) = 8 жетонов\n"
+        "• Видео (Seedance 1.5 Pro) = 2 жетона"
     )
     keyboard = [[InlineKeyboardButton("💎 Купить 20 жетонов за 700₽", callback_data="buy_tokens")]]
     await update.message.reply_text(text, parse_mode='Markdown', reply_markup=InlineKeyboardMarkup(keyboard))
@@ -405,8 +387,7 @@ async def process_yookassa_webhook(data: dict, bot: Bot, db):
 
     logger.info(f"Обработка платежа {label} завершена")
 
-# ---------- Экспорт обработчиков ----------
+# ---------- Экспорт обработчиков (только нужные) ----------
 buy_handler = CommandHandler("buy", buy_command)
 buy_tokens_handler = CommandHandler("buy20", buy_tokens_command)
 buy_tokens_callback_handler = CallbackQueryHandler(buy_tokens_callback, pattern="^buy_tokens$")
-add_tokens_handler = CommandHandler("add_tokens", add_tokens_command)

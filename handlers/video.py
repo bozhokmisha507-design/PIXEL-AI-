@@ -1,8 +1,6 @@
 import uuid
 import logging
 import os
-import aiohttp
-import asyncio
 from decimal import Decimal
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, Bot
@@ -16,31 +14,29 @@ from utils.helpers import send_video_or_fallback
 
 logger = logging.getLogger(__name__)
 
-# Состояния диалога
 PHOTO, PROMPT, MODEL_SELECT, CONFIRM = range(4)
-
 MAX_PHOTOS = 3
 
-# --- Определяем две модели ---
 VIDEO_MODELS = {
     "sora2pro": {
-        "name": "🎬 Sora 2 Pro (премиум качество)",
+        "name": "🎬 Sora 2 Pro (премиум)",
         "price_rub": 280,
         "price_tokens": 8,
         "duration": 4,
-        "size": "1280x720"
+        "size": "1280x720",
+        "model_api": "sora-2-pro"
     },
-    "soralite": {
-        "name": "⚡ Sora Lite (хорошее качество, эконом)",
-        "price_rub": 150,
-        "price_tokens": 4,
-        "duration": 4,
-        "size": "854x480"
+    "seedance": {
+        "name": "⚡ Seedance 1.5 Pro (эконом)",
+        "price_rub": 50,
+        "price_tokens": 2,
+        "duration": 10,
+        "size": "1080x1440",
+        "model_api": "seedance-1.5-pro"
     }
 }
 
 async def video_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
     context.user_data['video_photos'] = []
     await update.message.reply_text(
         f"🎬 *Создание видео из фото*\n\n"
@@ -59,10 +55,8 @@ async def photo_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     photo = update.message.photo[-1]
     file = await context.bot.get_file(photo.file_id)
-
     user_dir = os.path.join(Config.UPLOAD_DIR, str(user_id))
     os.makedirs(user_dir, exist_ok=True)
-
     file_path = os.path.join(user_dir, f"video_photo_{uuid.uuid4().hex[:8]}.jpg")
     await file.download_to_drive(file_path)
     logger.info(f"Сохранено фото для видео: {file_path}")
@@ -121,11 +115,10 @@ async def prompt_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     prompt = update.message.text.strip()
     context.user_data['video_prompt'] = prompt
 
-    # Показываем выбор модели: две кнопки с ценами
     keyboard = []
     for key, info in VIDEO_MODELS.items():
         keyboard.append([InlineKeyboardButton(
-            f"{info['name']} – {info['price_rub']}₽ / {info['price_tokens']} жетона",
+            f"{info['name']} – {info['price_rub']}₽ / {info['price_tokens']} жет.",
             callback_data=f"video_model_{key}"
         )])
     keyboard.append([InlineKeyboardButton("❌ Отмена", callback_data="video_cancel")])
@@ -146,10 +139,9 @@ async def model_selected_callback(update: Update, context: ContextTypes.DEFAULT_
     db = await get_db()
     tokens = await db.get_user_tokens(user_id)
 
-    # Получаем цены для выбранной модели
-    model_info = VIDEO_MODELS[model_key]
-    price = model_info['price_rub']
-    token_cost = model_info['price_tokens']
+    info = VIDEO_MODELS[model_key]
+    price = info['price_rub']
+    token_cost = info['price_tokens']
 
     keyboard = []
     if tokens >= token_cost:
@@ -163,9 +155,8 @@ async def model_selected_callback(update: Update, context: ContextTypes.DEFAULT_
     )])
     keyboard.append([InlineKeyboardButton("❌ Отмена", callback_data="video_cancel")])
 
-    model_name = VIDEO_MODELS[model_key]['name']
     await query.edit_message_text(
-        f"✅ Выбрана модель: {model_name}\n\n"
+        f"✅ Выбрана модель: {info['name']}\n\n"
         f"Стоимость: {price}₽ или {token_cost} жетона.\n\n"
         "Как хотите оплатить?",
         reply_markup=InlineKeyboardMarkup(keyboard)
@@ -203,12 +194,16 @@ async def pay_with_money_callback(update: Update, context: ContextTypes.DEFAULT_
         await query.edit_message_text("❌ Модель не выбрана. Начните заново.")
         return ConversationHandler.END
 
-    amount = VIDEO_MODELS[model_key]['price_rub']
+    info = VIDEO_MODELS[model_key]
+    amount = info['price_rub']
     label = f"video_{user_id}_{uuid.uuid4().hex[:8]}"
 
     data = {
         'prompt': context.user_data['video_prompt'],
         'model': model_key,
+        'model_api': info['model_api'],
+        'duration': info['duration'],
+        'size': info['size'],
         'photos': context.user_data.get('video_photos', [])
     }
 
@@ -224,11 +219,10 @@ async def pay_with_money_callback(update: Update, context: ContextTypes.DEFAULT_
                 "type": "redirect",
                 "return_url": f"https://t.me/bma3_bot?start=payment_{label}"
             },
-            "description": f"Генерация видео в PIXEL AI ({VIDEO_MODELS[model_key]['name']})",
+            "description": f"Генерация видео в PIXEL AI ({info['name']})",
             "metadata": {"label": label, "user_id": user_id}
         }, uuid.uuid4())
         payment_url = payment.confirmation.confirmation_url
-        # Сохраняем payment_id для fallback проверки
         await db.update_order_payment_id(label, payment.id)
     except Exception as e:
         logger.error(f"Ошибка создания платежа для видео: {e}")
@@ -257,23 +251,23 @@ async def cancel_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return ConversationHandler.END
 
 async def generate_video(user_id: int, bot: Bot, db, context=None):
-    """Генерация видео для оплаты жетонами (или вызов из fallback)"""
     try:
         prompt = context.user_data.get('video_prompt')
-        model_key = context.user_data.get('video_model', 'soralite')
+        model_key = context.user_data.get('video_model')
         photo_paths = context.user_data.get('video_photos', [])
-
-        if not prompt or not photo_paths:
+        if not prompt or not photo_paths or not model_key:
             await bot.send_message(user_id, "❌ Не найдены промпт или фото.")
             return
 
-        model_info = VIDEO_MODELS.get(model_key, VIDEO_MODELS['soralite'])
+        info = VIDEO_MODELS[model_key]
         aitunnel = AITunnelService()
-        video_data = await aitunnel.generate_video_sora_i2v(
+        # Используем универсальный метод (см. обновление aitunnel_service.py ниже)
+        video_data = await aitunnel.generate_video_generic(
+            model=info['model_api'],
             image_paths=photo_paths,
             prompt=prompt,
-            size=model_info['size'],
-            duration=model_info['duration']
+            size=info['size'],
+            duration=info['duration']
         )
 
         if video_data:
@@ -282,12 +276,11 @@ async def generate_video(user_id: int, bot: Bot, db, context=None):
         else:
             await bot.send_message(user_id, "❌ Не удалось сгенерировать видео. Попробуйте позже.")
             if context.user_data.get('video_paid_with_tokens'):
-                token_cost = context.user_data.get('video_token_cost', model_info['price_tokens'])
+                token_cost = context.user_data.get('video_token_cost', info['price_tokens'])
                 await db.add_tokens(user_id, token_cost)
                 await bot.send_message(user_id, f"💎 Вам возвращено {token_cost} жетонов.")
             return
 
-        # Очистка
         for path in photo_paths:
             try:
                 if os.path.exists(path):
@@ -312,27 +305,27 @@ async def generate_video(user_id: int, bot: Bot, db, context=None):
             if token_cost:
                 await db.add_tokens(user_id, token_cost)
                 await bot.send_message(user_id, f"💎 Вам возвращено {token_cost} жетонов.")
-        raise  # Пробрасываем для вебхука
+        raise
 
 async def generate_video_from_data(user_id: int, bot: Bot, db, data: dict):
-    """Генерация видео из данных заказа (оплата деньгами, вызывается из вебхука)"""
     try:
         prompt = data.get('prompt')
-        model_key = data.get('model', 'soralite')
+        model_api = data.get('model_api')
+        duration = data.get('duration', 4)
+        size = data.get('size', '1280x720')
         photo_paths = data.get('photos', [])
-
-        if not prompt or not photo_paths:
+        if not prompt or not photo_paths or not model_api:
             logger.error(f"Неполные данные: {data}")
             await bot.send_message(user_id, "❌ Ошибка: неполные данные заказа.")
             return
 
-        model_info = VIDEO_MODELS.get(model_key, VIDEO_MODELS['soralite'])
         aitunnel = AITunnelService()
-        video_data = await aitunnel.generate_video_sora_i2v(
+        video_data = await aitunnel.generate_video_generic(
+            model=model_api,
             image_paths=photo_paths,
             prompt=prompt,
-            size=model_info['size'],
-            duration=model_info['duration']
+            size=size,
+            duration=duration
         )
 
         if video_data:
@@ -342,7 +335,6 @@ async def generate_video_from_data(user_id: int, bot: Bot, db, data: dict):
             await bot.send_message(user_id, "❌ Не удалось сгенерировать видео. Попробуйте позже.")
             return
 
-        # Очистка временных файлов
         for path in photo_paths:
             try:
                 if os.path.exists(path):

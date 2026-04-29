@@ -13,6 +13,7 @@ logger = logging.getLogger(__name__)
 WELCOME_MEDIA_FILE_ID = "BAACAgIAAxkBAAINK2m2ovEkC-IgPrVDWBdZEP3xnt2bAALjlQAC5UGxSQOUHY4Gm49-OgQ"
 OFFER_URL = "https://disk.yandex.ru/i/nMXgEPicY1r_GA"
 
+# Настройка ЮKassa для проверки платежей
 Configuration.account_id = Config.YKASSA_SHOP_ID
 Configuration.secret_key = Config.YKASSA_SECRET_KEY
 
@@ -30,15 +31,15 @@ async def send_welcome_message(chat_id: int, first_name: str, bot):
         f"• Загрузи фото мужчины и женщины, выбери стиль\n"
         f"• Nano Banana Pro – 75₽ / 2 жетона (максимальное качество)\n\n"
         f"🎬 *Видео*\n"
-        f"• Два варианта качества:\n"
-        f"  - Премиум (Sora 2 Pro) – 280₽ / 8 жетонов, 1280x720\n"
-        f"  - Лайт (Sora Lite) – 150₽ / 4 жетона, 854x480\n\n"
+        f"• Sora 2 Pro – 4 сек, 720p – 280₽ / 8 жетонов\n"
+        f"• Seedance 1.5 Pro – 10 сек, вертикальное 1080x1440 – 50₽ / 2 жетона\n\n"
         f"💎 *Жетоны*\n"
         f"• Пакет 20 жетонов – 700₽\n"
         f"• Gemini = 1 жетон, GPT Image / Nano Banana = 2 жетона\n"
-        f"• Видео премиум = 8 жетонов, видео лайт = 4 жетона\n\n"
+        f"• Видео: Sora 2 Pro = 8 жетонов, Seedance = 2 жетона\n\n"
         f"👇 Жми на кнопки ниже и пробуй!"
     )
+    # Сначала пробуем как видео
     try:
         await bot.send_video(chat_id, video=WELCOME_MEDIA_FILE_ID, caption=welcome_text, parse_mode='Markdown', reply_markup=get_main_menu_keyboard())
     except Exception:
@@ -96,8 +97,10 @@ async def show_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await send_welcome_message(update.effective_chat.id, user.first_name, context.bot)
 
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # Обработка deep-link аргументов
     if context.args:
         arg = context.args[0]
+        
         if arg.startswith("payment_"):
             label = arg.replace("payment_", "")
             user_id = update.effective_user.id
@@ -109,6 +112,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     reply_markup=get_main_menu_keyboard()
                 )
                 return
+
             try:
                 payment = YKPayment.find_one(payment_id)
                 logger.info(f"Статус платежа {label}: {payment.status}")
@@ -127,6 +131,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     reply_markup=get_main_menu_keyboard()
                 )
             return
+
         elif arg.startswith("tokens_"):
             await update.message.reply_text(
                 "⏳ Платёж за жетоны обрабатывается. Если оплата прошла успешно, жетоны поступят автоматически в течение минуты.",
@@ -152,6 +157,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return
 
+    # Обычный /start (без аргументов или неизвестный аргумент)
     user = update.effective_user
     user_id = user.id
     db = await get_db()
@@ -192,13 +198,17 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "4. Оплати 75₽ или используй 2 жетона.\n\n"
         "**🎬 Видео**\n"
         "1. Нажми «🎬 Создать видео».\n"
-        "2. Загрузи 1–3 фото или нажми «Готово».\n"
-        "3. Введи описание.\n"
-        "4. Выбери качество:\n"
-        "   • Премиум (Sora 2 Pro) – 280₽ / 8 жетонов, 1280x720\n"
-        "   • Лайт (Sora Lite) – 150₽ / 4 жетона, 854x480\n\n"
+        "2. Загрузи до 3 фото, введи описание.\n"
+        "3. Выбери модель:\n"
+        "   • Sora 2 Pro – 4 сек, 720p – 280₽ / 8 жетонов\n"
+        "   • Seedance 1.5 Pro – 10 сек, вертикальное 1080x1440 – 50₽ / 2 жетона\n"
+        "4. Оплати или используй жетоны.\n\n"
         "**💎 Жетоны**\n"
-        "• 20 жетонов = 700₽ (команда /buy20).\n"
+        "• Пакет 20 жетонов = 700₽ (команда /buy20).\n"
+        "• Стоимость в жетонах:\n"
+        "   • Gemini = 1, GPT/Nano Banana = 2\n"
+        "   • Парные фото = 2\n"
+        "   • Видео Sora 2 Pro = 8, Seedance = 2\n"
         "• Баланс можно посмотреть по кнопке «💎 Мои жетоны».\n\n"
         "**📞 Поддержка**\n"
         "По всем вопросам пишите: super-mike-4@yandex.ru\n\n"
@@ -242,6 +252,7 @@ async def handle_main_menu_buttons(update: Update, context: ContextTypes.DEFAULT
         from handlers.video import video_start
         await video_start(update, context)
 
+# Секретная команда /getlink (для админов)
 WAITING_MEDIA = 1
 AUTHORIZED_USERS = Config.ADMIN_IDS
 
@@ -297,5 +308,6 @@ secret_link_conv = ConversationHandler(
     per_user=True, per_chat=True
 )
 
+# Экспорт обработчиков
 start_handler = CommandHandler("start", start_command)
 help_handler = CommandHandler("help", help_command)

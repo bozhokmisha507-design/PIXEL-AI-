@@ -7,6 +7,7 @@ import json
 from PIL import Image
 import io
 from config import Config
+from typing import Optional
 
 logger = logging.getLogger(__name__)
 
@@ -567,4 +568,112 @@ class AITunnelService:
                 return None
         except Exception as e:
             logger.error(f"❌ Ошибка при генерации видео: {e}", exc_info=True)
+            return None
+
+    # ---------- УНИВЕРСАЛЬНАЯ ГЕНЕРАЦИЯ ВИДЕО (поддержка любых моделей) ----------
+    async def generate_video_generic(self, model: str, image_paths: list, prompt: str, size: str, duration: int = 4) -> Optional[bytes]:
+        """
+        Универсальная генерация видео для любой модели AI Tunnel.
+        model: "sora-2-pro", "seedance-1.5-pro" и т.д.
+        image_paths: список путей к изображениям (берётся первое)
+        prompt: текстовое описание
+        size: "1280x720", "1080x1440" и т.д. (требуется моделью)
+        duration: длительность в секундах (если модель поддерживает, иначе игнорируется)
+        """
+        if not image_paths:
+            logger.error("❌ Нет изображений для генерации видео")
+            return None
+        
+        image_path = image_paths[0]
+        if not os.path.exists(image_path):
+            logger.error(f"❌ Файл не найден: {image_path}")
+            return None
+        
+        # Кодируем изображение в base64
+        try:
+            with open(image_path, "rb") as f:
+                image_data = base64.b64encode(f.read()).decode('utf-8')
+        except Exception as e:
+            logger.error(f"❌ Ошибка кодирования изображения: {e}")
+            return None
+        
+        url = f"{self.base_url}/videos"
+        headers = {
+            "Authorization": f"Bearer {self.api_key}",
+            "Content-Type": "application/json"
+        }
+        payload = {
+            "model": model,
+            "prompt": prompt,
+            "image": image_data,
+            "size": size,
+            "duration": duration
+        }
+        
+        logger.info(f"Запрос на создание видео: модель={model}, size={size}, duration={duration} сек")
+        
+        async with aiohttp.ClientSession() as session:
+            # 1. Создаём задание (с повторными попытками)
+            job = None
+            for attempt in range(3):
+                try:
+                    async with session.post(url, headers=headers, json=payload, timeout=aiohttp.ClientTimeout(total=30)) as resp:
+                        if resp.status == 200:
+                            job = await resp.json()
+                            break
+                        else:
+                            error_text = await resp.text()
+                            logger.error(f"Попытка {attempt+1}: ошибка создания видео ({resp.status}): {error_text[:200]}")
+                except (aiohttp.ClientError, asyncio.TimeoutError) as e:
+                    logger.error(f"Попытка {attempt+1}: сеть/тайм-аут при создании видео: {e}")
+                    if attempt == 2:
+                        return None
+                    await asyncio.sleep(1.5 * (2 ** attempt))
+            
+            if not job:
+                logger.error("Не удалось создать видео-задание после всех попыток")
+                return None
+            
+            job_id = job.get("id")
+            polling_url = job.get("polling_url")
+            if not polling_url:
+                logger.error("Ответ не содержит polling_url")
+                return None
+            logger.info(f"Видео-задание создано: id={job_id}, polling_url={polling_url}")
+            
+            # 2. Ожидаем завершения (polling)
+            max_attempts = 60  # максимум 5 минут при интервале 5 сек
+            for attempt in range(max_attempts):
+                await asyncio.sleep(5)
+                try:
+                    async with session.get(polling_url, headers=headers, timeout=aiohttp.ClientTimeout(total=10)) as resp:
+                        if resp.status != 200:
+                            logger.warning(f"Polling attempt {attempt+1}: статус {resp.status}")
+                            continue
+                        status_data = await resp.json()
+                        status = status_data.get("status")
+                        logger.info(f"Статус видео: {status} (прогресс: {status_data.get('progress', 'N/A')})")
+                        if status == "completed":
+                            video_url = status_data.get("unsigned_urls", [None])[0]
+                            if video_url:
+                                async with session.get(video_url, timeout=aiohttp.ClientTimeout(total=60)) as video_resp:
+                                    if video_resp.status == 200:
+                                        video_bytes = await video_resp.read()
+                                        logger.info(f"Видео получено, размер {len(video_bytes)} байт")
+                                        return video_bytes
+                                    else:
+                                        logger.error(f"Не удалось скачать видео: {video_resp.status}")
+                                        return None
+                            else:
+                                logger.error("Нет ссылки на готовое видео в ответе")
+                                return None
+                        elif status == "failed":
+                            error_msg = status_data.get("error", "Неизвестная ошибка")
+                            logger.error(f"Генерация видео провалилась: {error_msg}")
+                            return None
+                except Exception as e:
+                    logger.warning(f"Ошибка при опросе статуса: {e}")
+                    continue
+            
+            logger.error("Таймаут ожидания видео")
             return None

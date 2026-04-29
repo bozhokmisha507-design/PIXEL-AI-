@@ -13,7 +13,6 @@ logger = logging.getLogger(__name__)
 WELCOME_MEDIA_FILE_ID = "BAACAgIAAxkBAAINK2m2ovEkC-IgPrVDWBdZEP3xnt2bAALjlQAC5UGxSQOUHY4Gm49-OgQ"
 OFFER_URL = "https://disk.yandex.ru/i/nMXgEPicY1r_GA"
 
-# Настройка ЮKassa для проверки платежей
 Configuration.account_id = Config.YKASSA_SHOP_ID
 Configuration.secret_key = Config.YKASSA_SECRET_KEY
 
@@ -31,12 +30,13 @@ async def send_welcome_message(chat_id: int, first_name: str, bot):
         f"• Загрузи фото мужчины и женщины, выбери стиль\n"
         f"• Nano Banana Pro – 75₽ / 2 жетона (максимальное качество)\n\n"
         f"🎬 *Видео*\n"
-        f"• Создание видео по текстовому описанию\n"
-        f"• Sora 2 Pro – 280₽ / 8 жетонов\n\n"
+        f"• Два варианта качества:\n"
+        f"  - Премиум (Sora 2 Pro) – 280₽ / 8 жетонов, 1280x720\n"
+        f"  - Лайт (Sora Lite) – 150₽ / 4 жетона, 854x480\n\n"
         f"💎 *Жетоны*\n"
         f"• Пакет 20 жетонов – 700₽\n"
         f"• Gemini = 1 жетон, GPT Image / Nano Banana = 2 жетона\n"
-        f"• Видео = 8 жетонов\n\n"
+        f"• Видео премиум = 8 жетонов, видео лайт = 4 жетона\n\n"
         f"👇 Жми на кнопки ниже и пробуй!"
     )
     try:
@@ -96,11 +96,8 @@ async def show_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await send_welcome_message(update.effective_chat.id, user.first_name, context.bot)
 
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    # Обработка deep-link аргументов
     if context.args:
         arg = context.args[0]
-        
-        # ---------- ОБРАБОТКА ВОЗВРАТА ПОСЛЕ ОПЛАТЫ (с проверкой статуса) ----------
         if arg.startswith("payment_"):
             label = arg.replace("payment_", "")
             user_id = update.effective_user.id
@@ -112,7 +109,6 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     reply_markup=get_main_menu_keyboard()
                 )
                 return
-
             try:
                 payment = YKPayment.find_one(payment_id)
                 logger.info(f"Статус платежа {label}: {payment.status}")
@@ -131,10 +127,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     reply_markup=get_main_menu_keyboard()
                 )
             return
-
-        # ---------- ОСТАЛЬНЫЕ ТИПЫ ВОЗВРАТА (токены, пары, видео) – информационные ----------
         elif arg.startswith("tokens_"):
-            # Покупка жетонов – просто информационное сообщение
             await update.message.reply_text(
                 "⏳ Платёж за жетоны обрабатывается. Если оплата прошла успешно, жетоны поступят автоматически в течение минуты.",
                 reply_markup=get_main_menu_keyboard()
@@ -159,7 +152,6 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return
 
-    # Обычный /start (без аргументов или неизвестный аргумент)
     user = update.effective_user
     user_id = user.id
     db = await get_db()
@@ -200,8 +192,11 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "4. Оплати 75₽ или используй 2 жетона.\n\n"
         "**🎬 Видео**\n"
         "1. Нажми «🎬 Создать видео».\n"
-        "2. Введи описание.\n"
-        "3. Оплати 280₽ или используй 8 жетонов.\n\n"
+        "2. Загрузи 1–3 фото или нажми «Готово».\n"
+        "3. Введи описание.\n"
+        "4. Выбери качество:\n"
+        "   • Премиум (Sora 2 Pro) – 280₽ / 8 жетонов, 1280x720\n"
+        "   • Лайт (Sora Lite) – 150₽ / 4 жетона, 854x480\n\n"
         "**💎 Жетоны**\n"
         "• 20 жетонов = 700₽ (команда /buy20).\n"
         "• Баланс можно посмотреть по кнопке «💎 Мои жетоны».\n\n"
@@ -247,7 +242,6 @@ async def handle_main_menu_buttons(update: Update, context: ContextTypes.DEFAULT
         from handlers.video import video_start
         await video_start(update, context)
 
-# Секретная команда /getlink (для админов)
 WAITING_MEDIA = 1
 AUTHORIZED_USERS = Config.ADMIN_IDS
 
@@ -303,6 +297,5 @@ secret_link_conv = ConversationHandler(
     per_user=True, per_chat=True
 )
 
-# Экспорт обработчиков
 start_handler = CommandHandler("start", start_command)
 help_handler = CommandHandler("help", help_command)

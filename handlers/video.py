@@ -1,34 +1,42 @@
 import uuid
 import logging
 import os
+import aiohttp
 import asyncio
 from decimal import Decimal
+
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, Bot
 from telegram.ext import ContextTypes, ConversationHandler, CommandHandler, MessageHandler, filters, CallbackQueryHandler
+
 from config import Config
 from handlers.menu import get_main_menu_keyboard
 from database.db import get_db
 from services.aitunnel_service import AITunnelService
 from utils.helpers import send_video_or_fallback
 
-# Импорт ЮKassa
-from yookassa import Payment, Configuration
-
 logger = logging.getLogger(__name__)
-
-# Инициализация ЮKassa (на всякий случай, если payment.py не загружен)
-Configuration.account_id = Config.YKASSA_SHOP_ID
-Configuration.secret_key = Config.YKASSA_SECRET_KEY
 
 # Состояния диалога
 PHOTO, PROMPT, MODEL_SELECT, CONFIRM = range(4)
 
 MAX_PHOTOS = 3
-VIDEO_PRICE = 280
-VIDEO_TOKEN_COST = 8
 
+# --- Определяем две модели ---
 VIDEO_MODELS = {
-    "sora2pro": "🎬 Sora 2 Pro (Image-to-Video, 1280x720)"
+    "sora2pro": {
+        "name": "🎬 Sora 2 Pro (премиум качество)",
+        "price_rub": 280,
+        "price_tokens": 8,
+        "duration": 4,
+        "size": "1280x720"
+    },
+    "soralite": {
+        "name": "⚡ Sora Lite (хорошее качество, эконом)",
+        "price_rub": 150,
+        "price_tokens": 4,
+        "duration": 4,
+        "size": "854x480"
+    }
 }
 
 async def video_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -113,9 +121,13 @@ async def prompt_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     prompt = update.message.text.strip()
     context.user_data['video_prompt'] = prompt
 
+    # Показываем выбор модели: две кнопки с ценами
     keyboard = []
-    for key, name in VIDEO_MODELS.items():
-        keyboard.append([InlineKeyboardButton(name, callback_data=f"video_model_{key}")])
+    for key, info in VIDEO_MODELS.items():
+        keyboard.append([InlineKeyboardButton(
+            f"{info['name']} – {info['price_rub']}₽ / {info['price_tokens']} жетона",
+            callback_data=f"video_model_{key}"
+        )])
     keyboard.append([InlineKeyboardButton("❌ Отмена", callback_data="video_cancel")])
 
     await update.message.reply_text(
@@ -134,8 +146,10 @@ async def model_selected_callback(update: Update, context: ContextTypes.DEFAULT_
     db = await get_db()
     tokens = await db.get_user_tokens(user_id)
 
-    price = VIDEO_PRICE
-    token_cost = VIDEO_TOKEN_COST
+    # Получаем цены для выбранной модели
+    model_info = VIDEO_MODELS[model_key]
+    price = model_info['price_rub']
+    token_cost = model_info['price_tokens']
 
     keyboard = []
     if tokens >= token_cost:
@@ -149,7 +163,7 @@ async def model_selected_callback(update: Update, context: ContextTypes.DEFAULT_
     )])
     keyboard.append([InlineKeyboardButton("❌ Отмена", callback_data="video_cancel")])
 
-    model_name = VIDEO_MODELS.get(model_key, model_key)
+    model_name = VIDEO_MODELS[model_key]['name']
     await query.edit_message_text(
         f"✅ Выбрана модель: {model_name}\n\n"
         f"Стоимость: {price}₽ или {token_cost} жетона.\n\n"
@@ -163,14 +177,20 @@ async def pay_with_tokens_callback(update: Update, context: ContextTypes.DEFAULT
     await query.answer()
     user_id = query.from_user.id
     db = await get_db()
+    model_key = context.user_data.get('video_model')
+    if not model_key or model_key not in VIDEO_MODELS:
+        await query.edit_message_text("❌ Модель не выбрана. Начните заново.")
+        return ConversationHandler.END
+    token_cost = VIDEO_MODELS[model_key]['price_tokens']
 
-    if not await db.use_tokens(user_id, VIDEO_TOKEN_COST):
+    if not await db.use_tokens(user_id, token_cost):
         await query.edit_message_text("❌ Недостаточно жетонов.")
         return ConversationHandler.END
 
-    await query.edit_message_text("⏳ Генерация видео с использованием жетонов...")
-    # Передаём флаг, что оплачено жетонами
     context.user_data['video_paid_with_tokens'] = True
+    context.user_data['video_token_cost'] = token_cost
+
+    await query.edit_message_text("⏳ Генерация видео с использованием жетонов...")
     await generate_video(user_id, context.bot, db, context)
     return ConversationHandler.END
 
@@ -178,12 +198,17 @@ async def pay_with_money_callback(update: Update, context: ContextTypes.DEFAULT_
     query = update.callback_query
     await query.answer()
     user_id = query.from_user.id
+    model_key = context.user_data.get('video_model')
+    if not model_key or model_key not in VIDEO_MODELS:
+        await query.edit_message_text("❌ Модель не выбрана. Начните заново.")
+        return ConversationHandler.END
+
+    amount = VIDEO_MODELS[model_key]['price_rub']
     label = f"video_{user_id}_{uuid.uuid4().hex[:8]}"
-    amount = VIDEO_PRICE
 
     data = {
         'prompt': context.user_data['video_prompt'],
-        'model': context.user_data['video_model'],
+        'model': model_key,
         'photos': context.user_data.get('video_photos', [])
     }
 
@@ -191,19 +216,20 @@ async def pay_with_money_callback(update: Update, context: ContextTypes.DEFAULT_
     await db.create_order(user_id, label, amount, data=data)
 
     try:
+        from yookassa import Payment
         payment = Payment.create({
             "amount": {"value": str(amount), "currency": "RUB"},
             "capture": True,
             "confirmation": {
                 "type": "redirect",
-                "return_url": f"https://t.me/bma3_bot?start={label}"
+                "return_url": f"https://t.me/bma3_bot?start=payment_{label}"
             },
-            "description": "Генерация видео в PIXEL AI",
+            "description": f"Генерация видео в PIXEL AI ({VIDEO_MODELS[model_key]['name']})",
             "metadata": {"label": label, "user_id": user_id}
         }, uuid.uuid4())
-        # Сохраняем payment_id для fallback-проверки
-        await db.update_order_payment_id(label, payment.id)
         payment_url = payment.confirmation.confirmation_url
+        # Сохраняем payment_id для fallback проверки
+        await db.update_order_payment_id(label, payment.id)
     except Exception as e:
         logger.error(f"Ошибка создания платежа для видео: {e}")
         await query.edit_message_text("❌ Не удалось создать ссылку. Попробуйте позже.")
@@ -231,25 +257,23 @@ async def cancel_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return ConversationHandler.END
 
 async def generate_video(user_id: int, bot: Bot, db, context=None):
-    """Генерация видео после оплаты жетонами (с возвратом жетонов при ошибке)."""
-    paid_with_tokens = context.user_data.get('video_paid_with_tokens', False)
+    """Генерация видео для оплаты жетонами (или вызов из fallback)"""
     try:
         prompt = context.user_data.get('video_prompt')
-        model_key = context.user_data.get('video_model', 'sora2pro')
+        model_key = context.user_data.get('video_model', 'soralite')
         photo_paths = context.user_data.get('video_photos', [])
-        if not prompt:
-            await bot.send_message(user_id, "❌ Не найден промпт для генерации.")
-            return
-        if not photo_paths:
-            await bot.send_message(user_id, "❌ Не найдены исходные фото.")
+
+        if not prompt or not photo_paths:
+            await bot.send_message(user_id, "❌ Не найдены промпт или фото.")
             return
 
+        model_info = VIDEO_MODELS.get(model_key, VIDEO_MODELS['soralite'])
         aitunnel = AITunnelService()
         video_data = await aitunnel.generate_video_sora_i2v(
             image_paths=photo_paths,
             prompt=prompt,
-            size="1280x720",
-            duration=4
+            size=model_info['size'],
+            duration=model_info['duration']
         )
 
         if video_data:
@@ -257,11 +281,13 @@ async def generate_video(user_id: int, bot: Bot, db, context=None):
             await send_video_or_fallback(bot, user_id, video_data)
         else:
             await bot.send_message(user_id, "❌ Не удалось сгенерировать видео. Попробуйте позже.")
-            # Если оплата была жетонами и генерация не удалась, возвращаем жетоны
-            if paid_with_tokens:
-                await db.add_tokens(user_id, VIDEO_TOKEN_COST)
-                await bot.send_message(user_id, f"💎 Вам возвращено {VIDEO_TOKEN_COST} жетонов.")
+            if context.user_data.get('video_paid_with_tokens'):
+                token_cost = context.user_data.get('video_token_cost', model_info['price_tokens'])
+                await db.add_tokens(user_id, token_cost)
+                await bot.send_message(user_id, f"💎 Вам возвращено {token_cost} жетонов.")
+            return
 
+        # Очистка
         for path in photo_paths:
             try:
                 if os.path.exists(path):
@@ -270,7 +296,7 @@ async def generate_video(user_id: int, bot: Bot, db, context=None):
                 pass
         context.user_data.pop('video_prompt', None)
         context.user_data.pop('video_photos', None)
-        context.user_data.pop('video_paid_with_tokens', None)
+        context.user_data.pop('video_model', None)
 
         await bot.send_message(
             chat_id=user_id,
@@ -281,34 +307,32 @@ async def generate_video(user_id: int, bot: Bot, db, context=None):
     except Exception as e:
         logger.error(f"Ошибка генерации видео: {e}", exc_info=True)
         await bot.send_message(user_id, "❌ Произошла ошибка. Мы уже работаем над её исправлением.")
-        # Возвращаем жетоны, если были списаны
-        if paid_with_tokens:
-            await db.add_tokens(user_id, VIDEO_TOKEN_COST)
-            await bot.send_message(user_id, f"💎 Вам возвращено {VIDEO_TOKEN_COST} жетонов.")
-        # Пробрасываем исключение для вебхука (чтобы начислить компенсацию при оплате деньгами)
-        raise
+        if context and context.user_data.get('video_paid_with_tokens'):
+            token_cost = context.user_data.get('video_token_cost')
+            if token_cost:
+                await db.add_tokens(user_id, token_cost)
+                await bot.send_message(user_id, f"💎 Вам возвращено {token_cost} жетонов.")
+        raise  # Пробрасываем для вебхука
 
 async def generate_video_from_data(user_id: int, bot: Bot, db, data: dict):
-    """Генерация видео по данным из заказа (оплата деньгами, вызывается из вебхука)."""
+    """Генерация видео из данных заказа (оплата деньгами, вызывается из вебхука)"""
     try:
         prompt = data.get('prompt')
-        model_key = data.get('model', 'sora2pro')
+        model_key = data.get('model', 'soralite')
         photo_paths = data.get('photos', [])
 
-        if not prompt:
-            logger.error(f"Нет промпта в данных заказа: {data}")
+        if not prompt or not photo_paths:
+            logger.error(f"Неполные данные: {data}")
             await bot.send_message(user_id, "❌ Ошибка: неполные данные заказа.")
             return
-        if not photo_paths:
-            await bot.send_message(user_id, "❌ Не найдены исходные фото.")
-            return
 
+        model_info = VIDEO_MODELS.get(model_key, VIDEO_MODELS['soralite'])
         aitunnel = AITunnelService()
         video_data = await aitunnel.generate_video_sora_i2v(
             image_paths=photo_paths,
             prompt=prompt,
-            size="1280x720",
-            duration=4
+            size=model_info['size'],
+            duration=model_info['duration']
         )
 
         if video_data:
@@ -316,9 +340,9 @@ async def generate_video_from_data(user_id: int, bot: Bot, db, data: dict):
             await send_video_or_fallback(bot, user_id, video_data)
         else:
             await bot.send_message(user_id, "❌ Не удалось сгенерировать видео. Попробуйте позже.")
-            # Если не удалось, пробрасываем исключение для начисления компенсации
-            raise Exception("AI Tunnel не вернул видео")
+            return
 
+        # Очистка временных файлов
         for path in photo_paths:
             try:
                 if os.path.exists(path):
@@ -335,7 +359,6 @@ async def generate_video_from_data(user_id: int, bot: Bot, db, data: dict):
     except Exception as e:
         logger.error(f"Ошибка генерации видео из данных: {e}", exc_info=True)
         await bot.send_message(user_id, "❌ Произошла ошибка. Мы уже работаем над её исправлением.")
-        # Пробрасываем исключение, чтобы вебхук мог начислить компенсационные жетоны
         raise
 
 video_conv = ConversationHandler(

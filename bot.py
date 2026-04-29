@@ -3,7 +3,7 @@ import sys
 import logging
 import asyncio
 import warnings
-from datetime import datetime, timedelta
+from datetime import time
 from telegram.warnings import PTBUserWarning
 
 warnings.filterwarnings("ignore", category=PTBUserWarning)
@@ -25,12 +25,11 @@ from handlers.upload import upload_conversation
 from handlers.clean import clean_photos_handler
 from handlers.payment import (
     buy_handler, buy_tokens_handler, buy_tokens_callback_handler
-    # add_tokens_handler убран, используем новый диалог из admin.py
 )
 from handlers.couple import couple_conv
 from handlers.video import video_conv
 from handlers.custom_prompt import custom_prompt_conv
-from handlers.admin import add_tokens_conv, broadcast_handler   # новые админ-обработчики
+from handlers.admin import add_tokens_conv, broadcast_handler
 
 from webhook_server import start_webhook_server
 
@@ -40,12 +39,13 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# ========== Функция очистки старых фото ==========
 async def clean_old_files_job(context):
-    """Удаляет файлы в UPLOAD_DIR старше 7 дней."""
+    """Удаляет файлы старше 7 дней из UPLOAD_DIR"""
+    from datetime import datetime, timedelta
     now = datetime.now()
     deleted = 0
     if not os.path.exists(Config.UPLOAD_DIR):
+        logger.warning(f"Папка {Config.UPLOAD_DIR} не найдена")
         return
     for root, dirs, files in os.walk(Config.UPLOAD_DIR):
         for file in files:
@@ -55,11 +55,10 @@ async def clean_old_files_job(context):
                 if now - mtime > timedelta(days=7):
                     os.remove(file_path)
                     deleted += 1
-                    logger.debug(f"Удалён старый файл: {file_path}")
             except Exception as e:
                 logger.warning(f"Ошибка удаления {file_path}: {e}")
     if deleted:
-        logger.info(f"🧹 Очистка фото: удалено {deleted} файлов старше 7 дней")
+        logger.info(f"🗑️ Удалено {deleted} старых файлов из {Config.UPLOAD_DIR}")
 
 async def post_init(application: Application) -> None:
     try:
@@ -85,15 +84,6 @@ async def main_async():
 
     application = Application.builder().token(Config.BOT_TOKEN).post_init(post_init).build()
 
-    # ---------- Планирование ежедневной очистки фото ----------
-    job_queue = application.job_queue
-    if job_queue:
-        # Запуск каждый день в 3:00
-        job_queue.run_daily(clean_old_files_job, time=datetime.time(hour=3, minute=0))
-        logger.info("📅 Запланирована ежедневная очистка старых фото в 3:00")
-    else:
-        logger.warning("JobQueue недоступен, очистка фото не запланирована")
-
     # Регистрация обработчиков
     application.add_handler(start_handler)
     application.add_handler(help_handler)
@@ -118,9 +108,8 @@ async def main_async():
     # Команды
     application.add_handler(buy_handler)
     application.add_handler(buy_tokens_handler)
-    # Новые админ-команды:
-    application.add_handler(add_tokens_conv)      # диалог /add_tokens
-    application.add_handler(broadcast_handler)   # команда /broadcast
+    application.add_handler(add_tokens_conv)
+    application.add_handler(broadcast_handler)
 
     # Обработчик кнопок главного меню
     application.add_handler(MessageHandler(
@@ -140,9 +129,13 @@ async def main_async():
     ))
     application.add_handler(clean_photos_handler)
 
-    # Фоновая проверка платежей не требуется (ЮKassa использует вебхуки)
-    # job_queue = application.job_queue
-    # job_queue.run_repeating(check_payments_job, interval=15, first=10)
+    # Планируем ежедневную очистку старых фото в 3:00 ночи
+    job_queue = application.job_queue
+    if job_queue:
+        job_queue.run_daily(clean_old_files_job, time=time(hour=3, minute=0))
+        logger.info("🗑️ Запланирована ежедневная очистка старых фото в 03:00")
+    else:
+        logger.warning("Job queue не доступна, очистка фото не запланирована")
 
     asyncio.create_task(start_webhook_server(application.bot))
     logger.info("🌐 Веб-сервер запущен как фоновая задача")

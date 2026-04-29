@@ -28,6 +28,12 @@ class Config:
     TOKEN_COST_GPT = 2
     TOKEN_COST_NANOBANANA = 2
 
+    # ==================== Видео ====================
+    VIDEO_PRICE = 280                  # цена полной версии Sora 2 Pro (4 сек)
+    VIDEO_TOKEN_COST = 8               # стоимость в жетонах для полной версии
+    VIDEO_PRICE_LITE = 150             # цена лайт-версии видео
+    VIDEO_TOKEN_COST_LITE = 4          # стоимость в жетонах для лайт-версии
+
     # Telegram Payments (на будущее, не используется)
     PAYMENT_PROVIDER_TOKEN = os.getenv("PAYMENT_PROVIDER_TOKEN", "")
 

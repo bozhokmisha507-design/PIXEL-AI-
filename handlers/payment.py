@@ -9,6 +9,7 @@ from handlers.menu import get_main_menu_keyboard
 from services.aitunnel_service import AITunnelService
 from database.db import get_db
 from utils.helpers import send_photo_or_fallback
+from handlers.video import VIDEO_MODELS  # <-- импорт для видео-моделей
 
 logger = logging.getLogger(__name__)
 
@@ -274,7 +275,6 @@ async def generate_paid_photo(user_id: int, bot: Bot, db, context=None, label=No
                 user_id,
                 text="❌ Не удалось сгенерировать фото. Попробуйте позже. Если деньги списаны, они вернутся автоматически."
             )
-            # В этом случае исключение не выбрасываем, просто возвращаем None
             return
     except Exception as e:
         logger.error(f"Ошибка в generate_paid_photo: {e}", exc_info=True)
@@ -282,7 +282,6 @@ async def generate_paid_photo(user_id: int, bot: Bot, db, context=None, label=No
             user_id,
             text="❌ Внутренняя ошибка. Мы уже работаем над исправлением."
         )
-        # Пробрасываем исключение, чтобы вебхук мог обработать неудачу и начислить жетоны
         raise
 
 # ---------- Обработка вебхука ЮKassa ----------
@@ -331,11 +330,10 @@ async def process_yookassa_webhook(data: dict, bot: Bot, db):
                 await generate_couple_photo_from_data(user_id, bot, db, order_data)
             except Exception as e:
                 logger.error(f"Ошибка генерации парного фото {label}: {e}", exc_info=True)
-                # Компенсация: начисляем жетоны, равные стоимости парной генерации
                 await db.add_tokens(user_id, Config.COUPLE_TOKEN_COST)
                 await bot.send_message(
                     user_id,
-                    f"⚠️ Произошла техническая ошибка при генерации парного фото. Вам начислено {Config.COUPLE_TOKEN_COST} жетонов в качестве компенсации. Вы можете повторить попытку."
+                    f"⚠️ Произошла техническая ошибка при генерации парного фото. Вам начислено {Config.COUPLE_TOKEN_COST} жетонов. Вы можете повторить попытку."
                 )
             finally:
                 await db.mark_order_processed(label)
@@ -350,7 +348,6 @@ async def process_yookassa_webhook(data: dict, bot: Bot, db):
                 await generate_custom_photo_from_data(user_id, bot, db, order_data)
             except Exception as e:
                 logger.error(f"Ошибка генерации кастомного фото {label}: {e}", exc_info=True)
-                # Кастомная генерация всегда использует GPT -> 2 жетона
                 tokens = Config.TOKEN_COST_GPT
                 await db.add_tokens(user_id, tokens)
                 await bot.send_message(
@@ -370,12 +367,13 @@ async def process_yookassa_webhook(data: dict, bot: Bot, db):
                 await generate_video_from_data(user_id, bot, db, order_data)
             except Exception as e:
                 logger.error(f"Ошибка генерации видео {label}: {e}", exc_info=True)
-                # Видео стоит 8 жетонов (константа VIDEO_TOKEN_COST)
-                tokens = 8  # можно вынести в Config.VIDEO_TOKEN_COST, если ещё нет
-                await db.add_tokens(user_id, tokens)
+                model_key = order_data.get('model', 'sora2pro')
+                model_info = VIDEO_MODELS.get(model_key, VIDEO_MODELS.get('sora2pro', {'price_tokens': 8}))
+                token_cost = model_info.get('price_tokens', 8)
+                await db.add_tokens(user_id, token_cost)
                 await bot.send_message(
                     user_id,
-                    f"⚠️ Ошибка генерации видео. Вам начислено {tokens} жетонов. Попробуйте позже."
+                    f"⚠️ Ошибка генерации видео. Вам начислено {token_cost} жетонов. Попробуйте позже."
                 )
             finally:
                 await db.mark_order_processed(label)
@@ -391,21 +389,18 @@ async def process_yookassa_webhook(data: dict, bot: Bot, db):
             await generate_paid_photo(user_id, bot, db, label=label, order_data=order_data)
         except Exception as e:
             logger.error(f"Ошибка генерации одиночного фото {label}: {e}", exc_info=True)
-            # Определяем стоимость в жетонах по модели
             selected_model = order_data.get('selected_model', 'gemini')
             if selected_model == 'gemini':
                 tokens = Config.TOKEN_COST_GEMINI
             elif selected_model == 'gpt':
                 tokens = Config.TOKEN_COST_GPT
-            else:  # nanobanana
+            else:
                 tokens = Config.TOKEN_COST_NANOBANANA
             await db.add_tokens(user_id, tokens)
             await bot.send_message(
                 user_id,
                 f"⚠️ Произошла техническая ошибка. Вам начислено {tokens} жетонов. Вы можете повторить попытку позже."
             )
-            # Заказ уже помечается как обработанный внутри generate_paid_photo при вызове raise?
-            # На всякий случай пометим здесь, чтобы избежать повторных попыток
             await db.mark_order_processed(label)
 
     logger.info(f"Обработка платежа {label} завершена")

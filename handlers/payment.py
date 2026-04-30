@@ -168,6 +168,7 @@ async def my_tokens_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "• Nano Banana Pro = 2 жетона\n"
         "• Парные фото = 2 жетона\n"
         "• Видео Sora 2 Pro = 8 жетонов"
+        "• Wan 2.7 (видео) = 4 жетона"
     )
     keyboard = [[InlineKeyboardButton("💎 Купить 20 жетонов за 700₽", callback_data="buy_tokens")]]
     await update.message.reply_text(text, parse_mode='Markdown', reply_markup=InlineKeyboardMarkup(keyboard))

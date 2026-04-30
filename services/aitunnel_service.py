@@ -501,7 +501,6 @@ class AITunnelService:
             video_id = None
             async with aiohttp.ClientSession() as session:
                 headers = {"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json"}
-                # Попытки создания видео
                 for attempt in range(3):
                     try:
                         async with session.post(
@@ -587,7 +586,6 @@ class AITunnelService:
             logger.error(f"❌ Файл не найден: {image_path}")
             return None
         
-        # Кодируем изображение в base64
         try:
             with open(image_path, "rb") as f:
                 image_data = base64.b64encode(f.read()).decode('utf-8')
@@ -611,12 +609,10 @@ class AITunnelService:
         logger.info(f"Запрос на создание видео: модель={model}, size={size}, duration={duration} сек")
         
         async with aiohttp.ClientSession() as session:
-            # 1. Создаём задание (с повторными попытками)
             job = None
             for attempt in range(3):
                 try:
                     async with session.post(url, headers=headers, json=payload, timeout=aiohttp.ClientTimeout(total=30)) as resp:
-                        # Разрешаем и 200, и 202 (Accepted)
                         if resp.status in (200, 202):
                             job = await resp.json()
                             break
@@ -640,8 +636,7 @@ class AITunnelService:
                 return None
             logger.info(f"Видео-задание создано: id={job_id}, polling_url={polling_url}")
             
-            # 2. Ожидаем завершения (polling)
-            max_attempts = 60  # максимум 5 минут при интервале 5 сек
+            max_attempts = 60
             for attempt in range(max_attempts):
                 await asyncio.sleep(5)
                 try:
@@ -655,7 +650,6 @@ class AITunnelService:
                         if status == "completed":
                             video_url = status_data.get("unsigned_urls", [None])[0]
                             if video_url:
-                                # **ИСПРАВЛЕНИЕ: добавляем заголовки авторизации при скачивании**
                                 async with session.get(video_url, headers=headers, timeout=aiohttp.ClientTimeout(total=60)) as video_resp:
                                     if video_resp.status == 200:
                                         video_bytes = await video_resp.read()
@@ -678,11 +672,12 @@ class AITunnelService:
             logger.error("Таймаут ожидания видео")
             return None
 
-    # ---------- ГЕНЕРАЦИЯ ВИДЕО ЧЕРЕЗ Wan 2.7 (исправленная) ----------
-    async def generate_video_wan27(self, prompt: str, size: str = "1280x720", duration: int = 4) -> Optional[bytes]:
+    # ---------- ГЕНЕРАЦИЯ ВИДЕО ЧЕРЕЗ Wan 2.7 (с поддержкой Image-to-Video) ----------
+    async def generate_video_wan27(self, prompt: str, size: str = "1280x720", duration: int = 4, image_paths: Optional[list] = None) -> Optional[bytes]:
         """
-        Генерация видео через модель Wan 2.7 (без исходного изображения, только prompt).
-        Исправлена обработка статуса 202 как успеха и добавлены заголовки при скачивании.
+        Генерация видео через Wan 2.7.
+        Если передан image_paths (не пустой), использует первое фото как стартовое изображение.
+        Иначе – text-to-video.
         """
         url = f"{self.base_url}/videos"
         headers = {
@@ -695,74 +690,85 @@ class AITunnelService:
             "size": size,
             "duration": duration
         }
-        
-        logger.info(f"Запрос на создание видео Wan 2.7: prompt={prompt[:100]}..., size={size}, duration={duration} сек")
-        
+
+        # Добавляем изображение, если есть
+        if image_paths and len(image_paths) > 0:
+            first_image = image_paths[0]
+            if os.path.exists(first_image):
+                try:
+                    with open(first_image, "rb") as f:
+                        image_base64 = base64.b64encode(f.read()).decode('utf-8')
+                    payload["image"] = image_base64
+                    logger.info(f"Wan 2.7 Image-to-Video с фото {first_image}")
+                except Exception as e:
+                    logger.error(f"Ошибка кодирования фото для Wan 2.7: {e}")
+            else:
+                logger.warning(f"Файл {first_image} не найден, использую Text-to-Video")
+
+        logger.info(f"Запрос Wan 2.7: prompt={prompt[:100]}..., size={size}, duration={duration} сек, has_image={bool(payload.get('image'))}")
+
         async with aiohttp.ClientSession() as session:
-            # 1. Создаём задание (с повторными попытками)
             job = None
             for attempt in range(3):
                 try:
                     async with session.post(url, headers=headers, json=payload, timeout=aiohttp.ClientTimeout(total=self.TIMEOUT_VIDEO_CREATE)) as resp:
-                        # Успешные статусы: 200 OK или 202 Accepted
                         if resp.status in (200, 202):
                             job = await resp.json()
-                            logger.info(f"Попытка {attempt+1}: видео-задание Wan 2.7 создано (HTTP {resp.status})")
+                            logger.info(f"Попытка {attempt+1}: Wan 2.7 задача создана (HTTP {resp.status})")
                             break
                         else:
                             error_text = await resp.text()
                             logger.error(f"Попытка {attempt+1}: ошибка создания видео ({resp.status}): {error_text[:200]}")
                 except (aiohttp.ClientError, asyncio.TimeoutError) as e:
-                    logger.error(f"Попытка {attempt+1}: сеть/тайм-аут при создании видео: {e}")
+                    logger.error(f"Попытка {attempt+1}: сеть/тайм-аут: {e}")
                     if attempt == 2:
                         return None
                     await asyncio.sleep(1.5 * (2 ** attempt))
-            
+
             if not job:
-                logger.error("Не удалось создать видео-задание Wan 2.7 после всех попыток")
+                logger.error("Не удалось создать задание Wan 2.7")
                 return None
-            
-            job_id = job.get("id")
+
             polling_url = job.get("polling_url")
             if not polling_url:
-                logger.error("Ответ Wan 2.7 не содержит polling_url")
+                logger.error("Нет polling_url в ответе Wan 2.7")
                 return None
-            logger.info(f"Видео-задание Wan 2.7 создано: id={job_id}, polling_url={polling_url}")
-            
-            # 2. Ожидаем завершения (polling)
-            max_attempts = 60  # 5 минут
+
+            job_id = job.get("id")
+            logger.info(f"Wan 2.7 задание {job_id}, polling_url={polling_url}")
+
+            max_attempts = 60
             for attempt in range(max_attempts):
                 await asyncio.sleep(5)
                 try:
                     async with session.get(polling_url, headers=headers, timeout=aiohttp.ClientTimeout(total=10)) as resp:
                         if resp.status != 200:
-                            logger.warning(f"Polling attempt {attempt+1}: статус {resp.status}")
+                            logger.warning(f"Polling {attempt+1}: статус {resp.status}")
                             continue
                         status_data = await resp.json()
                         status = status_data.get("status")
-                        logger.info(f"Статус видео Wan 2.7: {status} (прогресс: {status_data.get('progress', 'N/A')})")
+                        logger.info(f"Статус Wan 2.7: {status} (прогресс: {status_data.get('progress', 'N/A')})")
                         if status == "completed":
                             video_url = status_data.get("unsigned_urls", [None])[0]
                             if video_url:
-                                # **ИСПРАВЛЕНИЕ: добавляем заголовки авторизации при скачивании**
                                 async with session.get(video_url, headers=headers, timeout=aiohttp.ClientTimeout(total=60)) as video_resp:
                                     if video_resp.status == 200:
                                         video_bytes = await video_resp.read()
-                                        logger.info(f"Видео Wan 2.7 получено, размер {len(video_bytes)} байт")
+                                        logger.info(f"Wan 2.7 видео получено, размер {len(video_bytes)} байт")
                                         return video_bytes
                                     else:
-                                        logger.error(f"Не удалось скачать видео Wan 2.7: {video_resp.status}")
+                                        logger.error(f"Ошибка скачивания видео Wan 2.7: {video_resp.status}")
                                         return None
                             else:
-                                logger.error("Нет ссылки на готовое видео Wan 2.7 в ответе")
+                                logger.error("Нет ссылки на готовое видео Wan 2.7")
                                 return None
                         elif status == "failed":
                             error_msg = status_data.get("error", "Неизвестная ошибка")
-                            logger.error(f"Генерация видео Wan 2.7 провалилась: {error_msg}")
+                            logger.error(f"Wan 2.7 генерация провалилась: {error_msg}")
                             return None
                 except Exception as e:
-                    logger.warning(f"Ошибка при опросе статуса Wan 2.7: {e}")
+                    logger.warning(f"Ошибка при опросе Wan 2.7: {e}")
                     continue
-            
+
             logger.error("Таймаут ожидания видео Wan 2.7")
             return None

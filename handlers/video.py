@@ -122,7 +122,6 @@ async def prompt_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     prompt = update.message.text.strip()
     context.user_data['video_prompt'] = prompt
 
-    # Показываем выбор модели
     keyboard = []
     for model_key, info in VIDEO_MODELS.items():
         keyboard.append([InlineKeyboardButton(
@@ -259,7 +258,6 @@ async def cancel_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return ConversationHandler.END
 
 async def generate_video(user_id: int, bot: Bot, db, context=None):
-    """Генерация видео для оплаты жетонами (или вызов из fallback)"""
     try:
         prompt = context.user_data.get('video_prompt')
         model_key = context.user_data.get('video_model')
@@ -268,7 +266,7 @@ async def generate_video(user_id: int, bot: Bot, db, context=None):
             await bot.send_message(user_id, "❌ Не найдены промпт или фото.")
             return
         if not model_key or model_key not in VIDEO_MODELS:
-            model_key = 'sora2pro'  # fallback
+            model_key = 'sora2pro'
         model_info = VIDEO_MODELS[model_key]
 
         aitunnel = AITunnelService()
@@ -280,12 +278,11 @@ async def generate_video(user_id: int, bot: Bot, db, context=None):
                 duration=model_info['duration']
             )
         elif model_key == 'wan27':
-            # Для Wan 2.7 используем отдельный метод (Text-to-Video или Image-to-Video)
-            # Предполагаем, что в aitunnel_service есть метод generate_video_wan27
             video_data = await aitunnel.generate_video_wan27(
                 prompt=prompt,
                 size=model_info['size'],
-                duration=model_info['duration']
+                duration=model_info['duration'],
+                image_paths=photo_paths   # передаём фото для Image‑to‑Video
             )
         else:
             video_data = None
@@ -301,7 +298,6 @@ async def generate_video(user_id: int, bot: Bot, db, context=None):
                 await bot.send_message(user_id, f"💎 Вам возвращено {token_cost} жетонов.")
             return
 
-        # Очистка временных файлов
         for path in photo_paths:
             try:
                 if os.path.exists(path):
@@ -310,7 +306,6 @@ async def generate_video(user_id: int, bot: Bot, db, context=None):
                 pass
         context.user_data.pop('video_prompt', None)
         context.user_data.pop('video_photos', None)
-        context.user_data.pop('video_model', None)
 
         await bot.send_message(
             chat_id=user_id,
@@ -329,7 +324,6 @@ async def generate_video(user_id: int, bot: Bot, db, context=None):
         raise
 
 async def generate_video_from_data(user_id: int, bot: Bot, db, data: dict):
-    """Генерация видео из данных заказа (оплата деньгами, вызывается из вебхука)"""
     try:
         prompt = data.get('prompt')
         model_key = data.get('model', 'sora2pro')
@@ -353,7 +347,8 @@ async def generate_video_from_data(user_id: int, bot: Bot, db, data: dict):
             video_data = await aitunnel.generate_video_wan27(
                 prompt=prompt,
                 size=model_info['size'],
-                duration=model_info['duration']
+                duration=model_info['duration'],
+                image_paths=photo_paths
             )
         else:
             video_data = None
@@ -365,7 +360,6 @@ async def generate_video_from_data(user_id: int, bot: Bot, db, data: dict):
             await bot.send_message(user_id, "❌ Не удалось сгенерировать видео. Попробуйте позже.")
             return
 
-        # Очистка временных файлов
         for path in photo_paths:
             try:
                 if os.path.exists(path):

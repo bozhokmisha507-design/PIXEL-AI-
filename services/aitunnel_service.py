@@ -677,3 +677,88 @@ class AITunnelService:
             
             logger.error("Таймаут ожидания видео")
             return None
+
+    # ---------- ГЕНЕРАЦИЯ ВИДЕО ЧЕРЕЗ Wan 2.7 ----------
+    async def generate_video_wan27(self, prompt: str, size: str = "1280x720", duration: int = 4) -> Optional[bytes]:
+        """
+        Генерация видео через модель Wan 2.7 (без исходного изображения, только prompt).
+        """
+        url = f"{self.base_url}/videos"
+        headers = {
+            "Authorization": f"Bearer {self.api_key}",
+            "Content-Type": "application/json"
+        }
+        payload = {
+            "model": "wan-2.7",
+            "prompt": prompt,
+            "size": size,
+            "duration": duration
+        }
+        
+        logger.info(f"Запрос на создание видео Wan 2.7: prompt={prompt[:100]}..., size={size}, duration={duration} сек")
+        
+        async with aiohttp.ClientSession() as session:
+            # 1. Создаём задание (с повторными попытками)
+            job = None
+            for attempt in range(3):
+                try:
+                    async with session.post(url, headers=headers, json=payload, timeout=aiohttp.ClientTimeout(total=self.TIMEOUT_VIDEO_CREATE)) as resp:
+                        if resp.status == 200:
+                            job = await resp.json()
+                            break
+                        else:
+                            error_text = await resp.text()
+                            logger.error(f"Попытка {attempt+1}: ошибка создания видео ({resp.status}): {error_text[:200]}")
+                except (aiohttp.ClientError, asyncio.TimeoutError) as e:
+                    logger.error(f"Попытка {attempt+1}: сеть/тайм-аут при создании видео: {e}")
+                    if attempt == 2:
+                        return None
+                    await asyncio.sleep(1.5 * (2 ** attempt))
+            
+            if not job:
+                logger.error("Не удалось создать видео-задание Wan 2.7 после всех попыток")
+                return None
+            
+            job_id = job.get("id")
+            polling_url = job.get("polling_url")
+            if not polling_url:
+                logger.error("Ответ Wan 2.7 не содержит polling_url")
+                return None
+            logger.info(f"Видео-задание Wan 2.7 создано: id={job_id}, polling_url={polling_url}")
+            
+            # 2. Ожидаем завершения (polling)
+            max_attempts = 60  # 5 минут
+            for attempt in range(max_attempts):
+                await asyncio.sleep(5)
+                try:
+                    async with session.get(polling_url, headers=headers, timeout=aiohttp.ClientTimeout(total=10)) as resp:
+                        if resp.status != 200:
+                            logger.warning(f"Polling attempt {attempt+1}: статус {resp.status}")
+                            continue
+                        status_data = await resp.json()
+                        status = status_data.get("status")
+                        logger.info(f"Статус видео Wan 2.7: {status} (прогресс: {status_data.get('progress', 'N/A')})")
+                        if status == "completed":
+                            video_url = status_data.get("unsigned_urls", [None])[0]
+                            if video_url:
+                                async with session.get(video_url, timeout=aiohttp.ClientTimeout(total=60)) as video_resp:
+                                    if video_resp.status == 200:
+                                        video_bytes = await video_resp.read()
+                                        logger.info(f"Видео Wan 2.7 получено, размер {len(video_bytes)} байт")
+                                        return video_bytes
+                                    else:
+                                        logger.error(f"Не удалось скачать видео Wan 2.7: {video_resp.status}")
+                                        return None
+                            else:
+                                logger.error("Нет ссылки на готовое видео Wan 2.7 в ответе")
+                                return None
+                        elif status == "failed":
+                            error_msg = status_data.get("error", "Неизвестная ошибка")
+                            logger.error(f"Генерация видео Wan 2.7 провалилась: {error_msg}")
+                            return None
+                except Exception as e:
+                    logger.warning(f"Ошибка при опросе статуса Wan 2.7: {e}")
+                    continue
+            
+            logger.error("Таймаут ожидания видео Wan 2.7")
+            return None

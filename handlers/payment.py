@@ -9,6 +9,7 @@ from handlers.menu import get_main_menu_keyboard
 from services.aitunnel_service import AITunnelService
 from database.db import get_db
 from utils.helpers import send_photo_or_fallback
+from handlers.video import VIDEO_MODELS  # <-- добавили импорт для доступа к стоимости жетонов
 
 logger = logging.getLogger(__name__)
 
@@ -347,7 +348,10 @@ async def process_yookassa_webhook(data: dict, bot: Bot, db):
                 await generate_video_from_data(user_id, bot, db, order_data)
             except Exception as e:
                 logger.error(f"Ошибка генерации видео {label}: {e}", exc_info=True)
-                token_cost = 8  # Sora 2 Pro стоит 8 жетонов
+                # Получаем модель из данных заказа
+                model_key = order_data.get('model', 'sora2pro')
+                # Извлекаем стоимость в жетонах из словаря VIDEO_MODELS
+                token_cost = VIDEO_MODELS.get(model_key, {}).get('price_tokens', 8)
                 await db.add_tokens(user_id, token_cost)
                 await bot.send_message(
                     user_id,

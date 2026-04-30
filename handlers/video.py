@@ -16,14 +16,29 @@ from utils.helpers import send_video_or_fallback
 
 logger = logging.getLogger(__name__)
 
-PHOTO, PROMPT, CONFIRM = range(3)
+# Состояния диалога
+PHOTO, PROMPT, MODEL_SELECT, CONFIRM = range(4)
 MAX_PHOTOS = 3
 
-VIDEO_PRICE = 280
-VIDEO_TOKEN_COST = 8
-VIDEO_DURATION = 4
-VIDEO_SIZE = "1280x720"
-VIDEO_MODEL_API = "sora-2-pro"
+# Определяем доступные модели видео
+VIDEO_MODELS = {
+    "sora2pro": {
+        "name": "🎬 Sora 2 Pro (премиум качество)",
+        "price_rub": 280,
+        "price_tokens": 8,
+        "duration": 4,
+        "size": "1280x720",
+        "api_model": "sora-2-pro"
+    },
+    "wan27": {
+        "name": "⚡ Wan 2.7 (отличное качество, эконом)",
+        "price_rub": 120,
+        "price_tokens": 4,
+        "duration": 4,
+        "size": "1280x720",
+        "api_model": "wan-2.7"
+    }
+}
 
 async def video_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data['video_photos'] = []
@@ -31,7 +46,9 @@ async def video_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"🎬 *Создание видео из фото*\n\n"
         f"Загрузите до {MAX_PHOTOS} селфи (можно одно).\n"
         f"После каждого фото будет появляться кнопка «Готово», чтобы завершить загрузку досрочно.\n\n"
-        f"Стоимость: {VIDEO_PRICE}₽ / {VIDEO_TOKEN_COST} жетонов (Sora 2 Pro, 4 сек, 720p)\n\n"
+        f"Стоимость зависит от выбранной модели (после загрузки фото и описания):\n"
+        f"• Sora 2 Pro: {VIDEO_MODELS['sora2pro']['price_rub']}₽ / {VIDEO_MODELS['sora2pro']['price_tokens']} жетонов\n"
+        f"• Wan 2.7: {VIDEO_MODELS['wan27']['price_rub']}₽ / {VIDEO_MODELS['wan27']['price_tokens']} жетонов\n\n"
         f"Отправьте фото:",
         parse_mode='Markdown'
     )
@@ -105,28 +122,50 @@ async def prompt_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     prompt = update.message.text.strip()
     context.user_data['video_prompt'] = prompt
 
-    user_id = update.effective_user.id
+    # Показываем выбор модели
+    keyboard = []
+    for model_key, info in VIDEO_MODELS.items():
+        keyboard.append([InlineKeyboardButton(
+            f"{info['name']} – {info['price_rub']}₽ / {info['price_tokens']} жетона",
+            callback_data=f"video_model_{model_key}"
+        )])
+    keyboard.append([InlineKeyboardButton("❌ Отмена", callback_data="video_cancel")])
+
+    await update.message.reply_text(
+        "🎬 *Выберите модель для генерации видео:*",
+        parse_mode='Markdown',
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+    return MODEL_SELECT
+
+async def model_selected_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    model_key = query.data.replace("video_model_", "")
+    context.user_data['video_model'] = model_key
+    model_info = VIDEO_MODELS[model_key]
+
+    user_id = query.from_user.id
     db = await get_db()
     tokens = await db.get_user_tokens(user_id)
 
     keyboard = []
-    if tokens >= VIDEO_TOKEN_COST:
+    if tokens >= model_info['price_tokens']:
         keyboard.append([InlineKeyboardButton(
-            f"💎 Использовать жетоны ({VIDEO_TOKEN_COST} шт., у вас {tokens})",
+            f"💎 Использовать жетоны ({model_info['price_tokens']} шт., у вас {tokens})",
             callback_data="video_pay_tokens"
         )])
     keyboard.append([InlineKeyboardButton(
-        f"💳 Оплатить {VIDEO_PRICE}₽",
+        f"💳 Оплатить {model_info['price_rub']}₽",
         callback_data="video_pay_money"
     )])
     keyboard.append([InlineKeyboardButton("❌ Отмена", callback_data="video_cancel")])
 
-    await update.message.reply_text(
-        f"✅ Описание сохранено.\n\n"
-        f"Модель: Sora 2 Pro (премиум)\n"
-        f"Длительность: 4 сек\n"
-        f"Разрешение: 720p\n\n"
-        f"Стоимость: {VIDEO_PRICE}₽ или {VIDEO_TOKEN_COST} жетонов.\n\n"
+    await query.edit_message_text(
+        f"✅ Выбрана модель: {model_info['name']}\n\n"
+        f"Длительность: {model_info['duration']} сек\n"
+        f"Разрешение: {model_info['size']}\n"
+        f"Стоимость: {model_info['price_rub']}₽ или {model_info['price_tokens']} жетонов.\n\n"
         "Как хотите оплатить?",
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
@@ -137,13 +176,19 @@ async def pay_with_tokens_callback(update: Update, context: ContextTypes.DEFAULT
     await query.answer()
     user_id = query.from_user.id
     db = await get_db()
+    model_key = context.user_data.get('video_model')
+    if not model_key or model_key not in VIDEO_MODELS:
+        await query.edit_message_text("❌ Модель не выбрана. Начните заново.")
+        return ConversationHandler.END
+    model_info = VIDEO_MODELS[model_key]
+    token_cost = model_info['price_tokens']
 
-    if not await db.use_tokens(user_id, VIDEO_TOKEN_COST):
+    if not await db.use_tokens(user_id, token_cost):
         await query.edit_message_text("❌ Недостаточно жетонов.")
         return ConversationHandler.END
 
     context.user_data['video_paid_with_tokens'] = True
-    context.user_data['video_token_cost'] = VIDEO_TOKEN_COST
+    context.user_data['video_token_cost'] = token_cost
 
     await query.edit_message_text("⏳ Генерация видео с использованием жетонов...")
     await generate_video(user_id, context.bot, db, context)
@@ -153,30 +198,36 @@ async def pay_with_money_callback(update: Update, context: ContextTypes.DEFAULT_
     query = update.callback_query
     await query.answer()
     user_id = query.from_user.id
+    model_key = context.user_data.get('video_model')
+    if not model_key or model_key not in VIDEO_MODELS:
+        await query.edit_message_text("❌ Модель не выбрана. Начните заново.")
+        return ConversationHandler.END
+
+    model_info = VIDEO_MODELS[model_key]
     label = f"video_{user_id}_{uuid.uuid4().hex[:8]}"
 
     data = {
         'prompt': context.user_data['video_prompt'],
-        'model': 'sora2pro',
-        'duration': VIDEO_DURATION,
-        'size': VIDEO_SIZE,
-        'model_api': VIDEO_MODEL_API,
+        'model': model_key,
+        'duration': model_info['duration'],
+        'size': model_info['size'],
+        'api_model': model_info['api_model'],
         'photos': context.user_data.get('video_photos', [])
     }
 
     db = await get_db()
-    await db.create_order(user_id, label, VIDEO_PRICE, data=data)
+    await db.create_order(user_id, label, model_info['price_rub'], data=data)
 
     try:
         from yookassa import Payment
         payment = Payment.create({
-            "amount": {"value": str(VIDEO_PRICE), "currency": "RUB"},
+            "amount": {"value": str(model_info['price_rub']), "currency": "RUB"},
             "capture": True,
             "confirmation": {
                 "type": "redirect",
                 "return_url": f"https://t.me/bma3_bot?start=payment_{label}"
             },
-            "description": "Генерация видео Sora 2 Pro в PIXEL AI",
+            "description": f"Генерация видео {model_info['name']} в PIXEL AI",
             "metadata": {"label": label, "user_id": user_id}
         }, uuid.uuid4())
         payment_url = payment.confirmation.confirmation_url
@@ -186,7 +237,7 @@ async def pay_with_money_callback(update: Update, context: ContextTypes.DEFAULT_
         await query.edit_message_text("❌ Не удалось создать ссылку. Попробуйте позже.")
         return ConversationHandler.END
 
-    keyboard = [[InlineKeyboardButton(f"💳 Оплатить {VIDEO_PRICE}₽", url=payment_url)]]
+    keyboard = [[InlineKeyboardButton(f"💳 Оплатить {model_info['price_rub']}₽", url=payment_url)]]
     await query.edit_message_text(
         "✨ Для завершения оплаты нажмите кнопку ниже. После оплаты видео придёт автоматически.",
         reply_markup=InlineKeyboardMarkup(keyboard)
@@ -208,20 +259,36 @@ async def cancel_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return ConversationHandler.END
 
 async def generate_video(user_id: int, bot: Bot, db, context=None):
+    """Генерация видео для оплаты жетонами (или вызов из fallback)"""
     try:
         prompt = context.user_data.get('video_prompt')
+        model_key = context.user_data.get('video_model')
         photo_paths = context.user_data.get('video_photos', [])
         if not prompt or not photo_paths:
             await bot.send_message(user_id, "❌ Не найдены промпт или фото.")
             return
+        if not model_key or model_key not in VIDEO_MODELS:
+            model_key = 'sora2pro'  # fallback
+        model_info = VIDEO_MODELS[model_key]
 
         aitunnel = AITunnelService()
-        video_data = await aitunnel.generate_video_sora_i2v(
-            image_paths=photo_paths,
-            prompt=prompt,
-            size=VIDEO_SIZE,
-            duration=VIDEO_DURATION
-        )
+        if model_key == 'sora2pro':
+            video_data = await aitunnel.generate_video_sora_i2v(
+                image_paths=photo_paths,
+                prompt=prompt,
+                size=model_info['size'],
+                duration=model_info['duration']
+            )
+        elif model_key == 'wan27':
+            # Для Wan 2.7 используем отдельный метод (Text-to-Video или Image-to-Video)
+            # Предполагаем, что в aitunnel_service есть метод generate_video_wan27
+            video_data = await aitunnel.generate_video_wan27(
+                prompt=prompt,
+                size=model_info['size'],
+                duration=model_info['duration']
+            )
+        else:
+            video_data = None
 
         if video_data:
             await bot.send_message(user_id, "✅ Ваше видео готово!")
@@ -229,11 +296,12 @@ async def generate_video(user_id: int, bot: Bot, db, context=None):
         else:
             await bot.send_message(user_id, "❌ Не удалось сгенерировать видео. Попробуйте позже.")
             if context.user_data.get('video_paid_with_tokens'):
-                token_cost = context.user_data.get('video_token_cost', VIDEO_TOKEN_COST)
+                token_cost = context.user_data.get('video_token_cost', model_info['price_tokens'])
                 await db.add_tokens(user_id, token_cost)
                 await bot.send_message(user_id, f"💎 Вам возвращено {token_cost} жетонов.")
             return
 
+        # Очистка временных файлов
         for path in photo_paths:
             try:
                 if os.path.exists(path):
@@ -242,6 +310,7 @@ async def generate_video(user_id: int, bot: Bot, db, context=None):
                 pass
         context.user_data.pop('video_prompt', None)
         context.user_data.pop('video_photos', None)
+        context.user_data.pop('video_model', None)
 
         await bot.send_message(
             chat_id=user_id,
@@ -260,21 +329,34 @@ async def generate_video(user_id: int, bot: Bot, db, context=None):
         raise
 
 async def generate_video_from_data(user_id: int, bot: Bot, db, data: dict):
+    """Генерация видео из данных заказа (оплата деньгами, вызывается из вебхука)"""
     try:
         prompt = data.get('prompt')
+        model_key = data.get('model', 'sora2pro')
         photo_paths = data.get('photos', [])
         if not prompt or not photo_paths:
             logger.error(f"Неполные данные: {data}")
             await bot.send_message(user_id, "❌ Ошибка: неполные данные заказа.")
             return
 
+        model_info = VIDEO_MODELS.get(model_key, VIDEO_MODELS['sora2pro'])
         aitunnel = AITunnelService()
-        video_data = await aitunnel.generate_video_sora_i2v(
-            image_paths=photo_paths,
-            prompt=prompt,
-            size=VIDEO_SIZE,
-            duration=VIDEO_DURATION
-        )
+
+        if model_key == 'sora2pro':
+            video_data = await aitunnel.generate_video_sora_i2v(
+                image_paths=photo_paths,
+                prompt=prompt,
+                size=model_info['size'],
+                duration=model_info['duration']
+            )
+        elif model_key == 'wan27':
+            video_data = await aitunnel.generate_video_wan27(
+                prompt=prompt,
+                size=model_info['size'],
+                duration=model_info['duration']
+            )
+        else:
+            video_data = None
 
         if video_data:
             await bot.send_message(user_id, "✅ Ваше видео готово!")
@@ -283,6 +365,7 @@ async def generate_video_from_data(user_id: int, bot: Bot, db, data: dict):
             await bot.send_message(user_id, "❌ Не удалось сгенерировать видео. Попробуйте позже.")
             return
 
+        # Очистка временных файлов
         for path in photo_paths:
             try:
                 if os.path.exists(path):
@@ -309,6 +392,7 @@ video_conv = ConversationHandler(
             CallbackQueryHandler(done_callback, pattern="^video_done$")
         ],
         PROMPT: [MessageHandler(filters.TEXT & ~filters.COMMAND, prompt_handler)],
+        MODEL_SELECT: [CallbackQueryHandler(model_selected_callback, pattern="^video_model_")],
         CONFIRM: [
             CallbackQueryHandler(pay_with_tokens_callback, pattern="^video_pay_tokens$"),
             CallbackQueryHandler(pay_with_money_callback, pattern="^video_pay_money$"),

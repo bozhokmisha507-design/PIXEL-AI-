@@ -185,7 +185,6 @@ class AITunnelService:
                             "modalities": ["image", "text"],
                             "max_tokens": 1000
                         }
-                        # Используем повторные попытки
                         result = await self._post_with_retry(
                             session,
                             f"{self.base_url}/chat/completions",
@@ -225,7 +224,6 @@ class AITunnelService:
                         form_data.add_field('n', str(num_images))
 
                         headers = {"Authorization": f"Bearer {self.api_key}"}
-                        # Для form-data тоже добавим retry вручную
                         for attempt in range(3):
                             try:
                                 async with session.post(
@@ -242,7 +240,7 @@ class AITunnelService:
                                                     results.append(f"data:image/png;base64,{item['b64_json']}")
                                                 elif 'url' in item:
                                                     results.append(item['url'])
-                                        break  # успех, выходим из retry
+                                        break
                                     else:
                                         error_text = await resp.text()
                                         logger.error(f"Попытка {attempt+1}: GPT ошибка {resp.status} - {error_text[:200]}")
@@ -657,7 +655,8 @@ class AITunnelService:
                         if status == "completed":
                             video_url = status_data.get("unsigned_urls", [None])[0]
                             if video_url:
-                                async with session.get(video_url, timeout=aiohttp.ClientTimeout(total=60)) as video_resp:
+                                # **ИСПРАВЛЕНИЕ: добавляем заголовки авторизации при скачивании**
+                                async with session.get(video_url, headers=headers, timeout=aiohttp.ClientTimeout(total=60)) as video_resp:
                                     if video_resp.status == 200:
                                         video_bytes = await video_resp.read()
                                         logger.info(f"Видео получено, размер {len(video_bytes)} байт")
@@ -683,7 +682,7 @@ class AITunnelService:
     async def generate_video_wan27(self, prompt: str, size: str = "1280x720", duration: int = 4) -> Optional[bytes]:
         """
         Генерация видео через модель Wan 2.7 (без исходного изображения, только prompt).
-        Исправлена обработка статуса 202 как успеха.
+        Исправлена обработка статуса 202 как успеха и добавлены заголовки при скачивании.
         """
         url = f"{self.base_url}/videos"
         headers = {
@@ -745,7 +744,8 @@ class AITunnelService:
                         if status == "completed":
                             video_url = status_data.get("unsigned_urls", [None])[0]
                             if video_url:
-                                async with session.get(video_url, timeout=aiohttp.ClientTimeout(total=60)) as video_resp:
+                                # **ИСПРАВЛЕНИЕ: добавляем заголовки авторизации при скачивании**
+                                async with session.get(video_url, headers=headers, timeout=aiohttp.ClientTimeout(total=60)) as video_resp:
                                     if video_resp.status == 200:
                                         video_bytes = await video_resp.read()
                                         logger.info(f"Видео Wan 2.7 получено, размер {len(video_bytes)} байт")

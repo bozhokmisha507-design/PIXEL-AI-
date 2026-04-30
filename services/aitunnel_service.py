@@ -618,7 +618,8 @@ class AITunnelService:
             for attempt in range(3):
                 try:
                     async with session.post(url, headers=headers, json=payload, timeout=aiohttp.ClientTimeout(total=30)) as resp:
-                        if resp.status == 200:
+                        # Разрешаем и 200, и 202 (Accepted)
+                        if resp.status in (200, 202):
                             job = await resp.json()
                             break
                         else:
@@ -678,10 +679,11 @@ class AITunnelService:
             logger.error("Таймаут ожидания видео")
             return None
 
-    # ---------- ГЕНЕРАЦИЯ ВИДЕО ЧЕРЕЗ Wan 2.7 ----------
+    # ---------- ГЕНЕРАЦИЯ ВИДЕО ЧЕРЕЗ Wan 2.7 (исправленная) ----------
     async def generate_video_wan27(self, prompt: str, size: str = "1280x720", duration: int = 4) -> Optional[bytes]:
         """
         Генерация видео через модель Wan 2.7 (без исходного изображения, только prompt).
+        Исправлена обработка статуса 202 как успеха.
         """
         url = f"{self.base_url}/videos"
         headers = {
@@ -703,8 +705,10 @@ class AITunnelService:
             for attempt in range(3):
                 try:
                     async with session.post(url, headers=headers, json=payload, timeout=aiohttp.ClientTimeout(total=self.TIMEOUT_VIDEO_CREATE)) as resp:
-                        if resp.status == 200:
+                        # Успешные статусы: 200 OK или 202 Accepted
+                        if resp.status in (200, 202):
                             job = await resp.json()
+                            logger.info(f"Попытка {attempt+1}: видео-задание Wan 2.7 создано (HTTP {resp.status})")
                             break
                         else:
                             error_text = await resp.text()

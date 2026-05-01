@@ -4,6 +4,7 @@ import logging
 import aiohttp
 import asyncio
 import json
+import random
 from PIL import Image
 import io
 from config import Config
@@ -54,6 +55,13 @@ class AITunnelService:
 
     # ---------- Одиночные фото (Gemini, GPT, Nano Banana) ----------
     async def generate_photos(self, user_photo_paths: list, style_key: str, num_images: int = 1, gender=None) -> list:
+        """
+        Генерирует ровно одно фото (num_images игнорируется, всегда 1).
+        Возвращает список с одним изображением (в base64 или URL).
+        """
+        # Принудительно устанавливаем num_images = 1, чтобы не было лишних запросов
+        num_images = 1
+
         style = Config.STYLES.get(style_key)
         if not style:
             raise ValueError(f"Unknown style: {style_key}")
@@ -155,7 +163,7 @@ class AITunnelService:
         results = []
 
         if self.model_type == "gemini":
-            # ---------- Gemini через chat/completions ----------
+            # ---------- Gemini через chat/completions (одно фото) ----------
             try:
                 with open(ref_photo_path, "rb") as f:
                     image_data = base64.b64encode(f.read()).decode("utf-8")
@@ -164,98 +172,100 @@ class AITunnelService:
                 logger.error(f"❌ Ошибка кодирования фото: {e}")
                 return []
 
-            for i in range(num_images):
-                try:
-                    async with aiohttp.ClientSession() as session:
-                        headers = {
-                            "Authorization": f"Bearer {self.api_key}",
-                            "Content-Type": "application/json"
-                        }
-                        payload = {
-                            "model": Config.AITUNNEL_IMAGE_MODEL,
-                            "messages": [
-                                {
-                                    "role": "user",
-                                    "content": [
-                                        {"type": "image_url", "image_url": {"url": data_url}},
-                                        {"type": "text", "text": f"Сгенерируй фото на основе этого человека: {prompt}"}
-                                    ]
-                                }
-                            ],
-                            "modalities": ["image", "text"],
-                            "max_tokens": 1000
-                        }
-                        result = await self._post_with_retry(
-                            session,
-                            f"{self.base_url}/chat/completions",
-                            headers,
-                            payload,
-                            aiohttp.ClientTimeout(total=self.TIMEOUT_GEMINI),
-                            retries=2
-                        )
-                        if result and 'choices' in result and result['choices']:
-                            message = result['choices'][0].get('message', {})
-                            if 'images' in message:
-                                for img in message['images']:
-                                    if 'image_url' in img and 'url' in img['image_url']:
-                                        results.append(img['image_url']['url'])
-                            elif 'content' in message and message['content'].startswith('data:image'):
-                                results.append(message['content'])
-                            else:
-                                logger.warning("⚠️ Нет изображения в ответе Gemini")
+            try:
+                async with aiohttp.ClientSession() as session:
+                    headers = {
+                        "Authorization": f"Bearer {self.api_key}",
+                        "Content-Type": "application/json"
+                    }
+                    payload = {
+                        "model": Config.AITUNNEL_IMAGE_MODEL,
+                        "messages": [
+                            {
+                                "role": "user",
+                                "content": [
+                                    {"type": "image_url", "image_url": {"url": data_url}},
+                                    {"type": "text", "text": f"Сгенерируй фото на основе этого человека: {prompt}"}
+                                ]
+                            }
+                        ],
+                        "modalities": ["image", "text"],
+                        "max_tokens": 1000,
+                        "seed": random.randint(1, 1000000),
+                        "candidate_count": 1   # Генерируем ровно одно фото
+                    }
+                    result = await self._post_with_retry(
+                        session,
+                        f"{self.base_url}/chat/completions",
+                        headers,
+                        payload,
+                        aiohttp.ClientTimeout(total=self.TIMEOUT_GEMINI),
+                        retries=2
+                    )
+                    if result and 'choices' in result and result['choices']:
+                        message = result['choices'][0].get('message', {})
+                        if 'images' in message:
+                            for img in message['images']:
+                                if 'image_url' in img and 'url' in img['image_url']:
+                                    results.append(img['image_url']['url'])
+                                    break   # берём только первое (хотя candidate_count=1)
+                        elif 'content' in message and message['content'].startswith('data:image'):
+                            results.append(message['content'])
                         else:
-                            logger.error(f"Ошибка Gemini: ответ пуст или некорректен")
-                except Exception as e:
-                    logger.error(f"❌ Ошибка генерации Gemini после всех попыток: {e}", exc_info=True)
+                            logger.warning("⚠️ Нет изображения в ответе Gemini")
+                    else:
+                        logger.error(f"Ошибка Gemini: ответ пуст или некорректен")
+            except Exception as e:
+                logger.error(f"❌ Ошибка генерации Gemini после всех попыток: {e}", exc_info=True)
 
         elif self.model_type == "gpt":
-            # ---------- GPT Image через /images/edits ----------
-            for i in range(num_images):
-                try:
-                    async with aiohttp.ClientSession() as session:
-                        form_data = aiohttp.FormData()
-                        form_data.add_field('model', 'gpt-image-1.5')
-                        with open(ref_photo_path, 'rb') as f:
-                            image_bytes = f.read()
-                        form_data.add_field('image[]', image_bytes, filename='photo.jpg', content_type='image/jpeg')
-                        form_data.add_field('prompt', prompt)
-                        form_data.add_field('quality', self.quality)
-                        form_data.add_field('size', self.size)
-                        form_data.add_field('n', str(num_images))
+            # ---------- GPT Image через /images/edits (одно фото) ----------
+            try:
+                async with aiohttp.ClientSession() as session:
+                    form_data = aiohttp.FormData()
+                    form_data.add_field('model', 'gpt-image-1.5')
+                    with open(ref_photo_path, 'rb') as f:
+                        image_bytes = f.read()
+                    form_data.add_field('image[]', image_bytes, filename='photo.jpg', content_type='image/jpeg')
+                    form_data.add_field('prompt', prompt)
+                    form_data.add_field('quality', self.quality)
+                    form_data.add_field('size', self.size)
+                    form_data.add_field('n', '1')                     # Только одно изображение
+                    form_data.add_field('seed', str(random.randint(1, 1000000)))
 
-                        headers = {"Authorization": f"Bearer {self.api_key}"}
-                        for attempt in range(3):
-                            try:
-                                async with session.post(
-                                    f"{self.base_url}/images/edits",
-                                    headers=headers,
-                                    data=form_data,
-                                    timeout=aiohttp.ClientTimeout(total=self.TIMEOUT_GPT)
-                                ) as resp:
-                                    if resp.status == 200:
-                                        data = await resp.json()
-                                        if 'data' in data:
-                                            for item in data['data']:
-                                                if 'b64_json' in item:
-                                                    results.append(f"data:image/png;base64,{item['b64_json']}")
-                                                elif 'url' in item:
-                                                    results.append(item['url'])
+                    headers = {"Authorization": f"Bearer {self.api_key}"}
+                    for attempt in range(3):
+                        try:
+                            async with session.post(
+                                f"{self.base_url}/images/edits",
+                                headers=headers,
+                                data=form_data,
+                                timeout=aiohttp.ClientTimeout(total=self.TIMEOUT_GPT)
+                            ) as resp:
+                                if resp.status == 200:
+                                    data = await resp.json()
+                                    if 'data' in data:
+                                        for item in data['data']:
+                                            if 'b64_json' in item:
+                                                results.append(f"data:image/png;base64,{item['b64_json']}")
+                                            elif 'url' in item:
+                                                results.append(item['url'])
                                         break
-                                    else:
-                                        error_text = await resp.text()
-                                        logger.error(f"Попытка {attempt+1}: GPT ошибка {resp.status} - {error_text[:200]}")
-                                        if attempt == 2:
-                                            logger.error("GPT Image не удалось после 3 попыток")
-                            except (aiohttp.ClientError, asyncio.TimeoutError) as e:
-                                logger.error(f"Попытка {attempt+1}: сеть/тайм-аут GPT: {e}")
-                                if attempt == 2:
-                                    raise
-                                await asyncio.sleep(1.5 * (2 ** attempt))
-                except Exception as e:
-                    logger.error(f"❌ Ошибка при генерации GPT Image: {e}", exc_info=True)
+                                else:
+                                    error_text = await resp.text()
+                                    logger.error(f"Попытка {attempt+1}: GPT ошибка {resp.status} - {error_text[:200]}")
+                                    if attempt == 2:
+                                        logger.error("GPT Image не удалось после 3 попыток")
+                        except (aiohttp.ClientError, asyncio.TimeoutError) as e:
+                            logger.error(f"Попытка {attempt+1}: сеть/тайм-аут GPT: {e}")
+                            if attempt == 2:
+                                raise
+                            await asyncio.sleep(1.5 * (2 ** attempt))
+            except Exception as e:
+                logger.error(f"❌ Ошибка при генерации GPT Image: {e}", exc_info=True)
 
         elif self.model_type == "nanobanana":
-            # ---------- Nano Banana Pro для одиночных фото ----------
+            # ---------- Nano Banana Pro для одиночных фото (одно изображение) ----------
             try:
                 with open(ref_photo_path, "rb") as f:
                     image_data = base64.b64encode(f.read()).decode("utf-8")
@@ -272,54 +282,58 @@ class AITunnelService:
                 f"perfect facial similarity. Landscape orientation, horizontal composition, aspect ratio 16:9, wide format."
             )
 
-            for i in range(num_images):
-                try:
-                    async with aiohttp.ClientSession() as session:
-                        headers = {
-                            "Authorization": f"Bearer {self.api_key}",
-                            "Content-Type": "application/json"
-                        }
-                        payload = {
-                            "model": "gemini-3-pro-image-preview",
-                            "messages": [
-                                {
-                                    "role": "user",
-                                    "content": [
-                                        {"type": "image_url", "image_url": {"url": data_url}},
-                                        {"type": "text", "text": enhanced_prompt}
-                                    ]
-                                }
-                            ],
-                            "modalities": ["image", "text"],
-                            "max_tokens": 3000
-                        }
-                        result = await self._post_with_retry(
-                            session,
-                            f"{self.base_url}/chat/completions",
-                            headers,
-                            payload,
-                            aiohttp.ClientTimeout(total=self.TIMEOUT_NANOBANANA),
-                            retries=2
-                        )
-                        if result and 'choices' in result and result['choices']:
-                            message = result['choices'][0].get('message', {})
-                            if 'images' in message:
-                                for img in message['images']:
-                                    if 'image_url' in img and 'url' in img['image_url']:
-                                        results.append(img['image_url']['url'])
-                                    elif 'b64_json' in img:
-                                        results.append(f"data:image/png;base64,{img['b64_json']}")
-                            elif 'content' in message and message['content'].startswith('data:image'):
-                                results.append(message['content'])
-                except Exception as e:
-                    logger.error(f"❌ Ошибка при генерации Nano Banana Pro: {e}", exc_info=True)
+            try:
+                async with aiohttp.ClientSession() as session:
+                    headers = {
+                        "Authorization": f"Bearer {self.api_key}",
+                        "Content-Type": "application/json"
+                    }
+                    payload = {
+                        "model": "gemini-3-pro-image-preview",
+                        "messages": [
+                            {
+                                "role": "user",
+                                "content": [
+                                    {"type": "image_url", "image_url": {"url": data_url}},
+                                    {"type": "text", "text": enhanced_prompt}
+                                ]
+                            }
+                        ],
+                        "modalities": ["image", "text"],
+                        "max_tokens": 3000,
+                        "seed": random.randint(1, 1000000),
+                        "candidate_count": 1   # Генерируем ровно одно фото
+                    }
+                    result = await self._post_with_retry(
+                        session,
+                        f"{self.base_url}/chat/completions",
+                        headers,
+                        payload,
+                        aiohttp.ClientTimeout(total=self.TIMEOUT_NANOBANANA),
+                        retries=2
+                    )
+                    if result and 'choices' in result and result['choices']:
+                        message = result['choices'][0].get('message', {})
+                        if 'images' in message:
+                            for img in message['images']:
+                                if 'image_url' in img and 'url' in img['image_url']:
+                                    results.append(img['image_url']['url'])
+                                    break
+                                elif 'b64_json' in img:
+                                    results.append(f"data:image/png;base64,{img['b64_json']}")
+                                    break
+                        elif 'content' in message and message['content'].startswith('data:image'):
+                            results.append(message['content'])
+            except Exception as e:
+                logger.error(f"❌ Ошибка при генерации Nano Banana Pro: {e}", exc_info=True)
 
         logger.info(f"✅ Генерация завершена, получено {len(results)} фото")
         return results
 
     # ---------- КАСТОМНАЯ ГЕНЕРАЦИЯ (произвольный промпт) ----------
     async def generate_custom_photo(self, user_photo_paths: list, prompt: str, num_images: int = 1) -> list:
-        """Генерация фото по произвольному промпту через GPT Image High."""
+        """Генерация одного фото по произвольному промпту через GPT Image High."""
+        num_images = 1
         try:
             if not user_photo_paths:
                 logger.error("❌ Список фото пользователя пуст")
@@ -339,49 +353,49 @@ class AITunnelService:
                 return []
 
             results = []
-            for i in range(num_images):
-                try:
-                    async with aiohttp.ClientSession() as session:
-                        form_data = aiohttp.FormData()
-                        form_data.add_field('model', 'gpt-image-1.5')
-                        with open(ref_photo_path, 'rb') as f:
-                            image_bytes = f.read()
-                        form_data.add_field('image[]', image_bytes, filename='photo.jpg', content_type='image/jpeg')
-                        form_data.add_field('prompt', prompt)
-                        form_data.add_field('quality', self.quality)
-                        form_data.add_field('size', self.size)
-                        form_data.add_field('n', str(num_images))
+            try:
+                async with aiohttp.ClientSession() as session:
+                    form_data = aiohttp.FormData()
+                    form_data.add_field('model', 'gpt-image-1.5')
+                    with open(ref_photo_path, 'rb') as f:
+                        image_bytes = f.read()
+                    form_data.add_field('image[]', image_bytes, filename='photo.jpg', content_type='image/jpeg')
+                    form_data.add_field('prompt', prompt)
+                    form_data.add_field('quality', self.quality)
+                    form_data.add_field('size', self.size)
+                    form_data.add_field('n', '1')
+                    form_data.add_field('seed', str(random.randint(1, 1000000)))
 
-                        headers = {"Authorization": f"Bearer {self.api_key}"}
-                        for attempt in range(3):
-                            try:
-                                async with session.post(
-                                    f"{self.base_url}/images/edits",
-                                    headers=headers,
-                                    data=form_data,
-                                    timeout=aiohttp.ClientTimeout(total=self.TIMEOUT_GPT)
-                                ) as resp:
-                                    if resp.status == 200:
-                                        data = await resp.json()
-                                        if 'data' in data:
-                                            for item in data['data']:
-                                                if 'b64_json' in item:
-                                                    results.append(f"data:image/png;base64,{item['b64_json']}")
-                                                elif 'url' in item:
-                                                    results.append(item['url'])
+                    headers = {"Authorization": f"Bearer {self.api_key}"}
+                    for attempt in range(3):
+                        try:
+                            async with session.post(
+                                f"{self.base_url}/images/edits",
+                                headers=headers,
+                                data=form_data,
+                                timeout=aiohttp.ClientTimeout(total=self.TIMEOUT_GPT)
+                            ) as resp:
+                                if resp.status == 200:
+                                    data = await resp.json()
+                                    if 'data' in data:
+                                        for item in data['data']:
+                                            if 'b64_json' in item:
+                                                results.append(f"data:image/png;base64,{item['b64_json']}")
+                                            elif 'url' in item:
+                                                results.append(item['url'])
                                         break
-                                    else:
-                                        error_text = await resp.text()
-                                        logger.error(f"Попытка {attempt+1}: GPT custom ошибка {resp.status}")
-                                        if attempt == 2:
-                                            logger.error("Кастомная генерация не удалась после 3 попыток")
-                            except (aiohttp.ClientError, asyncio.TimeoutError) as e:
-                                logger.error(f"Попытка {attempt+1}: сеть/тайм-аут custom GPT: {e}")
-                                if attempt == 2:
-                                    raise
-                                await asyncio.sleep(1.5 * (2 ** attempt))
-                except Exception as e:
-                    logger.error(f"❌ Ошибка при генерации кастомного фото: {e}", exc_info=True)
+                                else:
+                                    error_text = await resp.text()
+                                    logger.error(f"Попытка {attempt+1}: GPT custom ошибка {resp.status}")
+                                    if attempt == 2:
+                                        logger.error("Кастомная генерация не удалась после 3 попыток")
+                        except (aiohttp.ClientError, asyncio.TimeoutError) as e:
+                            logger.error(f"Попытка {attempt+1}: сеть/тайм-аут custom GPT: {e}")
+                            if attempt == 2:
+                                raise
+                            await asyncio.sleep(1.5 * (2 ** attempt))
+            except Exception as e:
+                logger.error(f"❌ Ошибка при генерации кастомного фото: {e}", exc_info=True)
             logger.info(f"✅ Кастомная генерация завершена, получено {len(results)} фото")
             return results
         except Exception as e:
@@ -396,7 +410,7 @@ class AITunnelService:
         prompt: str,
         resolution: str = "2K"
     ) -> list:
-        """Генерация парного фото с повторными попытками."""
+        """Генерация одного парного фото."""
         try:
             with open(male_photo_path, "rb") as f:
                 male_data = base64.b64encode(f.read()).decode("utf-8")
@@ -431,6 +445,8 @@ class AITunnelService:
                     ],
                     "modalities": ["image", "text"],
                     "max_tokens": 3000,
+                    "seed": random.randint(1, 1000000),
+                    "candidate_count": 1   # Одно парное фото
                 }
                 result = await self._post_with_retry(
                     session,
@@ -463,7 +479,8 @@ class AITunnelService:
 
     # ---------- ВИДЕО Sora 2 Pro (Image-to-Video) ----------
     async def generate_video_sora_i2v(self, image_paths: list, prompt: str, size: str = "1280x720", duration: int = 4) -> bytes | None:
-        """Генерация видео из изображения с повторными попытками при создании."""
+        """Генерация видео из изображения (всегда одно видео)."""
+        # Код метода остаётся без изменений (он уже возвращает одно видео)
         try:
             allowed = [4, 8, 12]
             if duration not in allowed:
@@ -569,14 +586,8 @@ class AITunnelService:
 
     # ---------- УНИВЕРСАЛЬНАЯ ГЕНЕРАЦИЯ ВИДЕО (поддержка любых моделей) ----------
     async def generate_video_generic(self, model: str, image_paths: list, prompt: str, size: str, duration: int = 4) -> Optional[bytes]:
-        """
-        Универсальная генерация видео для любой модели AI Tunnel.
-        model: "sora-2-pro", "seedance-1.5-pro" и т.д.
-        image_paths: список путей к изображениям (берётся первое)
-        prompt: текстовое описание
-        size: "1280x720", "1080x1440" и т.д. (требуется моделью)
-        duration: длительность в секундах (если модель поддерживает, иначе игнорируется)
-        """
+        """Универсальная генерация одного видео для любой модели."""
+        # Код метода остаётся без изменений – он возвращает одно видео
         if not image_paths:
             logger.error("❌ Нет изображений для генерации видео")
             return None
@@ -674,11 +685,8 @@ class AITunnelService:
 
     # ---------- ГЕНЕРАЦИЯ ВИДЕО ЧЕРЕЗ Wan 2.7 (с поддержкой Image-to-Video) ----------
     async def generate_video_wan27(self, prompt: str, size: str = "1280x720", duration: int = 4, image_paths: Optional[list] = None) -> Optional[bytes]:
-        """
-        Генерация видео через Wan 2.7.
-        Если передан image_paths (не пустой), использует первое фото как стартовое изображение.
-        Иначе – text-to-video.
-        """
+        """Генерация одного видео через Wan 2.7."""
+        # Код метода уже возвращает одно видео, изменений не требуется
         url = f"{self.base_url}/videos"
         headers = {
             "Authorization": f"Bearer {self.api_key}",
